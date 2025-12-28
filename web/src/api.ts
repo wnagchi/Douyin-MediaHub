@@ -1,0 +1,115 @@
+export interface MediaDir {
+  id: string;
+  path: string;
+  label?: string;
+  exists?: boolean;
+}
+
+export interface MediaItem {
+  kind: 'video' | 'image' | 'other';
+  filename: string;
+  url: string;
+  dirId?: string;
+  seq?: number;
+}
+
+export interface MediaGroup {
+  theme?: string;
+  author?: string;
+  timeText?: string;
+  groupType?: string;
+  types?: string[];
+  items: MediaItem[];
+  [key: string]: any;
+}
+
+export interface PaginationInfo {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  hasMore: boolean;
+  totalItems?: number;
+}
+
+export interface ResourcesResponse {
+  ok: boolean;
+  code?: string;
+  error?: string;
+  dirs?: MediaDir[];
+  groups?: MediaGroup[];
+  mediaDirs?: string[];
+  defaultMediaDirs?: string[];
+  pagination?: PaginationInfo;
+}
+
+export interface ConfigResponse {
+  ok: boolean;
+  error?: string;
+  mediaDirs?: string[];
+  defaultMediaDirs?: string[];
+  fromEnv?: boolean;
+  persisted?: boolean;
+}
+
+export interface InspectResponse {
+  ok: boolean;
+  error?: string;
+  name?: string;
+  dirId?: string;
+  note?: string;
+  info?: {
+    videoCodecHint?: string;
+    moov?: {
+      likelyFastStart?: boolean;
+    };
+    codecHints?: string[];
+  };
+}
+
+async function asJson<T>(resp: Response): Promise<T> {
+  return resp.json();
+}
+
+export interface FetchResourcesParams {
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  type?: string;
+  dirId?: string;
+}
+
+export async function fetchResources(params: FetchResourcesParams = {}): Promise<ResourcesResponse> {
+  const query = new URLSearchParams();
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+  if (params.q) query.set('q', params.q);
+  if (params.type) query.set('type', params.type);
+  if (params.dirId) query.set('dirId', params.dirId);
+  const qs = query.toString();
+  const url = qs ? `/api/resources?${qs}` : '/api/resources';
+  const r = await fetch(url, { cache: 'no-store' });
+  return asJson<ResourcesResponse>(r);
+}
+
+export async function fetchConfig(): Promise<ConfigResponse> {
+  const r = await fetch('/api/config', { cache: 'no-store' });
+  return asJson<ConfigResponse>(r);
+}
+
+export async function saveConfigMediaDirs(mediaDirs: string[]): Promise<ConfigResponse> {
+  const r = await fetch('/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mediaDirs }),
+  });
+  return asJson<ConfigResponse>(r);
+}
+
+export async function inspectMedia({ dirId, filename }: { dirId: string; filename: string }): Promise<InspectResponse> {
+  const r = await fetch(
+    `/api/inspect?dir=${encodeURIComponent(dirId || '')}&name=${encodeURIComponent(filename)}`,
+    { cache: 'no-store' }
+  );
+  return asJson<InspectResponse>(r);
+}
