@@ -77,6 +77,7 @@ export interface FetchResourcesParams {
   q?: string;
   type?: string;
   dirId?: string;
+  sort?: 'publish' | 'ingest';
 }
 
 export async function fetchResources(params: FetchResourcesParams = {}): Promise<ResourcesResponse> {
@@ -86,6 +87,7 @@ export async function fetchResources(params: FetchResourcesParams = {}): Promise
   if (params.q) query.set('q', params.q);
   if (params.type) query.set('type', params.type);
   if (params.dirId) query.set('dirId', params.dirId);
+  if (params.sort) query.set('sort', params.sort);
   const qs = query.toString();
   const url = qs ? `/api/resources?${qs}` : '/api/resources';
   const r = await fetch(url, { cache: 'no-store' });

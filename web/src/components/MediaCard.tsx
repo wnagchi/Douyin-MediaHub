@@ -4,6 +4,8 @@ import { escHtml } from '../utils';
 interface MediaCardProps {
   group: MediaGroup;
   groupIdx: number;
+  expanded?: boolean;
+  wrapperClassName?: string;
   onThumbClick: (groupIdx: number, itemIdx: number) => void;
 }
 
@@ -31,12 +33,18 @@ function typeTags(g: MediaGroup): string[] {
   return uniq;
 }
 
-export default function MediaCard({ group, groupIdx, onThumbClick }: MediaCardProps) {
+export default function MediaCard({
+  group,
+  groupIdx,
+  expanded = false,
+  wrapperClassName,
+  onThumbClick,
+}: MediaCardProps) {
   const title = fmtGroupTitle(group);
   const type = typeLabel(group);
   const tags = typeTags(group);
   const items = Array.isArray(group.items) ? group.items : [];
-  const previewCount = Math.min(items.length, 4);
+  const previewCount = Math.min(items.length, expanded ? 8 : 4);
 
   const handleThumbClick = (itemIdx: number) => {
     onThumbClick(groupIdx, itemIdx);
@@ -50,7 +58,7 @@ export default function MediaCard({ group, groupIdx, onThumbClick }: MediaCardPr
   };
 
   return (
-    <article className="card" data-type={escHtml(type)}>
+    <article className={`card ${wrapperClassName || ''}`} data-type={escHtml(type)}>
       <div className="cardInner">
         <div className="cardTop">
           <div>

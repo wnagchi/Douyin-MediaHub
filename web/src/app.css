@@ -1,3 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities{
+  /* columns 瀑布流防止卡片/瓦片被拆分 */
+  .break-inside-avoid{
+    break-inside: avoid;
+  }
+}
+
 :root{
   --bg0:#070A12;
   --bg1:#0B1022;
@@ -69,6 +80,7 @@ body{
   background: linear-gradient(180deg, rgba(7,10,18,.82), rgba(7,10,18,.55));
   border-bottom: 1px solid rgba(255,255,255,.08);
 }
+.mobileOnly{ display:none; }
 
 .brand{
   display:flex;
@@ -179,6 +191,11 @@ body{
 }
 .btn:hover{ transform: translateY(-1px); background: rgba(255,255,255,.08); }
 .btn.ghost{ background: transparent; }
+.btn.toggle.active{
+  border-color: rgba(124,92,255,.65);
+  background: linear-gradient(135deg, rgba(124,92,255,.22), rgba(39,211,255,.12));
+  color: rgba(255,255,255,.92);
+}
 
 .iconBtn{
   cursor:pointer;
@@ -195,10 +212,49 @@ body{
 }
 .iconBtn:hover{ transform: translateY(-1px); background: rgba(255,255,255,.08); }
 
+.metaActions{ display:flex; gap:10px; flex-wrap:wrap; }
+
 .grid{
   display:grid;
   grid-template-columns: repeat(12, 1fr);
   gap: 12px;
+}
+.grid.expanded{
+  gap: 14px;
+}
+
+.container.expanded{
+  max-width: 1440px;
+}
+
+.sectionBlock{
+  grid-column: 1 / -1;
+}
+.sectionHeader{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:12px;
+  padding: 10px 4px 6px;
+}
+.sectionTitle{
+  font-weight: 820;
+  letter-spacing: .2px;
+  color: rgba(255,255,255,.92);
+}
+.sectionMeta{
+  color: rgba(255,255,255,.55);
+  font-size: 12px;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.sectionGrid{
+  display:grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 12px;
+}
+.sectionGrid.expanded{
+  gap: 14px;
 }
 
 .listFooter{
@@ -225,6 +281,10 @@ body{
   box-shadow: var(--shadow);
   overflow:hidden;
   position:relative;
+}
+.grid.expanded .card,
+.sectionGrid.expanded .card{
+  grid-column: span 12;
 }
 .card::before{
   content:"";
@@ -289,9 +349,13 @@ body{
   grid-template-columns: repeat(6, 1fr);
   gap: 8px;
 }
+.grid.expanded .thumbs,
+.sectionGrid.expanded .thumbs{
+  grid-template-columns: repeat(8, 1fr);
+  gap: 10px;
+}
 .thumb{
   grid-column: span 3;
-  aspect-ratio: 16/10;
   border-radius: 14px;
   overflow:hidden;
   border: 1px solid rgba(255,255,255,.10);
@@ -299,11 +363,23 @@ body{
   position:relative;
   cursor:pointer;
 }
+.grid.expanded .thumb,
+.sectionGrid.expanded .thumb{
+  grid-column: span 2;
+}
 .thumb img, .thumb video{
   width:100%;
-  height:100%;
-  object-fit:cover;
+  height:auto;
+  /* 竖屏内容为主：避免裁剪，按原比例显示 */
+  object-fit:contain;
   display:block;
+}
+.thumb{
+  /* 避免单张竖图把卡片撑得过长；如需“完全不限制”，可把 max-height 移除 */
+  max-height: 520px;
+}
+.thumb img, .thumb video{
+  max-height: 520px;
 }
 .thumb video{
   background: rgba(0,0,0,.35);
@@ -341,15 +417,43 @@ body{
   .thumb{ grid-column: span 3; }
 }
 @media (max-width: 520px){
+  .mobileOnly{ display:inline-flex; }
+
+  .topbar.collapsed{
+    padding-bottom: 8px;
+  }
+  .topbar.collapsed .controls{
+    display:none;
+  }
+  .topbar.collapsed .brandText .subtitle{
+    display:none;
+  }
+  .topbar.collapsed .brand{
+    margin-bottom: 0;
+  }
+  .topbar.collapsed .title{
+    font-size: 14px;
+  }
+  .topbar.collapsed .logo{
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
+  }
+  #toggleTopbarCollapsedMini.iconBtn{
+    margin-left: auto;
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    font-size: 14px;
+  }
   .thumbs{
     grid-template-columns: repeat(2, 1fr);
   }
   .thumb{
     grid-column: span 2;
-    aspect-ratio: 9/16;
   }
   .thumb img, .thumb video{
-    object-fit:cover;
+    object-fit:contain;
   }
   .topbar{
     padding: 14px 12px 10px;

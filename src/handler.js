@@ -3,10 +3,10 @@ const { URL } = require("url");
 
 const { send, sendJson } = require("./http/respond");
 const { safeJoin, serveStaticFile } = require("./http/static");
-const { scanMedia, inspectMp4 } = require("./media");
+const { inspectMp4 } = require("./media");
 const { dirExists } = require("./utils/fs");
 
-function createHandler({ publicDir, mediaStore }) {
+function createHandler({ publicDir, mediaStore, indexer }) {
   return async function handler(req, res) {
     const u = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     const pathname = decodeURIComponent(u.pathname);
@@ -29,15 +29,12 @@ function createHandler({ publicDir, mediaStore }) {
         const pageParam = Number.parseInt(u.searchParams.get("page") || "1", 10);
         const sizeParam = Number.parseInt(u.searchParams.get("pageSize") || "30", 10);
         const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
-        const pageSize = Math.min(
-          200,
-          Math.max(1, Number.isFinite(sizeParam) && sizeParam > 0 ? sizeParam : 30)
-        );
+        const pageSize = Math.min(200, Math.max(1, Number.isFinite(sizeParam) && sizeParam > 0 ? sizeParam : 30));
         const typeFilter = (u.searchParams.get("type") || "").trim();
         const dirFilter = (u.searchParams.get("dirId") || "").trim();
-        const qFilter = (u.searchParams.get("q") || "").trim().toLowerCase();
+        const qFilter = (u.searchParams.get("q") || "").trim();
+        const sort = (u.searchParams.get("sort") || "").trim() || "publish";
 
-        const groups = await scanMedia(mediaDirs);
         const dirsWithStatus = await Promise.all(
           mediaDirs.map(async (d) => ({
             ...d,
@@ -45,54 +42,56 @@ function createHandler({ publicDir, mediaStore }) {
           }))
         );
 
-        let filtered = groups;
-
-        if (typeFilter) {
-          filtered = filtered.filter(
-            (g) => g.groupType === typeFilter || (Array.isArray(g.types) && g.types.includes(typeFilter))
-          );
-        }
-
-        if (dirFilter) {
-          filtered = filtered
-            .map((g) => {
-              const items = (g.items || []).filter((it) => it.dirId === dirFilter);
-              return { ...g, items };
-            })
-            .filter((g) => (g.items || []).length > 0);
-        }
-
-        if (qFilter) {
-          filtered = filtered.filter((g) => {
-            const hay = `${g.author || ""} ${g.theme || ""} ${g.groupType || ""} ${(g.types || []).join(" ")} ${
-              g.timeText || ""
-            }`.toLowerCase();
-            return hay.includes(qFilter);
-          });
-        }
-
-        const total = filtered.length;
-        const totalItems = filtered.reduce((acc, g) => acc + (g.items?.length || 0), 0);
-        const totalPages = total ? Math.max(1, Math.ceil(total / pageSize)) : 1;
-        const safePage = Math.min(Math.max(1, page), totalPages);
-        const start = (safePage - 1) * pageSize;
-        const groupsPage = filtered.slice(start, start + pageSize);
-        const hasMore = safePage < totalPages;
+        // 走 SQLite 索引：不再每次请求全量扫描目录
+        const result = indexer.queryResources({
+          page,
+          pageSize,
+          type: typeFilter,
+          dirId: dirFilter,
+          q: qFilter,
+          sort,
+        });
 
         return sendJson(res, 200, {
           ok: true,
           dirs: dirsWithStatus,
-          groups: groupsPage,
-          pagination: {
-            page: safePage,
-            pageSize,
-            total,
-            totalPages,
-            hasMore,
-            totalItems,
-          },
+          groups: result.groups || [],
+          pagination: result.pagination,
         });
       } catch (e) {
+        return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
+      }
+    }
+
+    // 钩子 API：外部触发一次增量更新检查
+    if ((req.method === "POST" || req.method === "GET") && pathname === "/api/reindex") {
+      // 可选鉴权：设置 HOOK_TOKEN 后，需提供 ?token=xxx 或 header x-hook-token
+      const token = (process.env.HOOK_TOKEN || "").toString().trim();
+      if (token) {
+        const provided =
+          (u.searchParams.get("token") || "").toString().trim() ||
+          (req.headers["x-hook-token"] || "").toString().trim();
+        if (provided !== token) return sendJson(res, 403, { ok: false, error: "forbidden" });
+      }
+      const force = (u.searchParams.get("force") || "").toString().trim() === "1";
+      try {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[hook] /api/reindex invoked method=${req.method} force=${force ? "1" : "0"} ` +
+            `ip=${req.socket?.remoteAddress || "-"} ua=${String(req.headers["user-agent"] || "-")}`
+        );
+        const r = await indexer.updateCheck({ force });
+        // eslint-disable-next-line no-console
+        console.log(
+          `[hook] /api/reindex done ok=${Boolean(r && r.ok)} ` +
+            `scannedDirs=${r?.scannedDirs ?? "-"} skippedDirs=${r?.skippedDirs ?? "-"} ` +
+            `added=${r?.added ?? "-"} updated=${r?.updated ?? "-"} deleted=${r?.deleted ?? "-"} ` +
+            `durationMs=${r?.durationMs ?? "-"}`
+        );
+        return sendJson(res, 200, r);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(`[hook] /api/reindex failed: ${String(e?.message || e)}`);
         return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
       }
     }
@@ -140,6 +139,9 @@ function createHandler({ publicDir, mediaStore }) {
 
           mediaStore.setMediaDirs(validation.dirs);
           if (!process.env.MEDIA_DIR && !process.env.MEDIA_DIRS) await mediaStore.saveConfigToDisk();
+
+          // 目录变化后，后台触发一次强制更新（避免下次进入还得等）
+          indexer.updateCheck({ force: true }).catch(() => {});
 
           return sendJson(res, 200, {
             ok: true,

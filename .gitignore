@@ -4,6 +4,9 @@ node_modules/
 # Build outputs
 dist/
 
+# Runtime data (SQLite index, etc.)
+data/
+
 # Logs
 logs/
 *.log
@@ -30,5 +33,5 @@ yarn-error.log*
 # OS files
 Thumbs.db
 
-# Config (if contains sensitive data)
-# config.json
+# Local config (contains machine-specific absolute paths)
+config.json

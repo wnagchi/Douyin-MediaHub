@@ -2,8 +2,22 @@ import { useEffect, useRef } from 'react';
 import { MediaGroup } from '../api';
 import MediaCard from './MediaCard';
 
+export interface MediaGridItem {
+  groupIdx: number; // index in the original groups array (App state)
+  group: MediaGroup;
+}
+
+export interface MediaGridSection {
+  key: string;
+  title: string;
+  meta?: string;
+  items: MediaGridItem[];
+}
+
 interface MediaGridProps {
-  groups: MediaGroup[];
+  sections: MediaGridSection[];
+  expanded: boolean;
+  layout: 'grid' | 'masonry';
   hasMore: boolean;
   totalGroups: number;
   loadingMore: boolean;
@@ -14,7 +28,9 @@ interface MediaGridProps {
 const THUMB_ROOT_MARGIN = '240px 0px';
 
 export default function MediaGrid({
-  groups,
+  sections,
+  expanded,
+  layout,
   hasMore,
   totalGroups,
   loadingMore,
@@ -103,22 +119,55 @@ export default function MediaGrid({
     return () => {
       videos.forEach((v) => thumbObserverRef.current?.unobserve(v));
     };
-  }, [groups]);
+  }, [sections]);
+
+  const displayedGroups = sections.reduce((acc, s) => acc + (s.items?.length || 0), 0);
+  const isMasonry = layout === 'masonry';
+  const masonryCols = expanded
+    ? 'columns-1 lg:columns-2'
+    : 'columns-1 md:columns-2 xl:columns-3';
 
   return (
-    <div id="grid" className="grid" ref={gridRef}>
-      {groups.map((group, groupIdx) => (
-        <MediaCard
-          key={groupIdx}
-          group={group}
-          groupIdx={groupIdx}
-          onThumbClick={onThumbClick}
-        />
+    <div
+      id="grid"
+      className={isMasonry ? '' : `grid ${expanded ? 'expanded' : ''}`}
+      ref={gridRef}
+    >
+      {sections.map((sec) => (
+        <div key={sec.key} className={isMasonry ? '' : 'sectionBlock'}>
+          {(sec.title || sec.meta) && (
+            <div className="flex items-baseline justify-between gap-3 px-1 pt-2 pb-1">
+              <div className="font-extrabold tracking-tight text-[rgba(255,255,255,.92)]">{sec.title}</div>
+              {sec.meta && <div className="text-xs font-mono text-[rgba(255,255,255,.55)] whitespace-nowrap">{sec.meta}</div>}
+            </div>
+          )}
+
+          <div
+            className={
+              isMasonry
+                ? `${masonryCols} [column-gap:14px]`
+                : `sectionGrid ${expanded ? 'expanded' : ''}`
+            }
+          >
+            {sec.items.map(({ group, groupIdx }) => (
+              <MediaCard
+                key={groupIdx}
+                group={group}
+                groupIdx={groupIdx}
+                expanded={expanded}
+                wrapperClassName={
+                  isMasonry ? 'break-inside-avoid mb-3 inline-block w-full' : undefined
+                }
+                onThumbClick={onThumbClick}
+              />
+            ))}
+          </div>
+        </div>
       ))}
-      <div className="listFooter">
+      <div className={isMasonry ? 'listFooter mt-2' : 'listFooter'}>
         {hasMore ? (
           <button id="loadMore" className="btn" onClick={onLoadMore} disabled={loadingMore}>
-            {loadingMore ? '加载中…' : `加载更多（${groups.length}/${totalGroups}）`}
+            {loadingMore ? '加载中…' : `加载更多（${displayedGroups}/${totalGroups}）`}
           </button>
         ) : (
           <div className="endHint">已到底</div>

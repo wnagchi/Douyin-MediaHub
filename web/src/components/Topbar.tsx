@@ -6,11 +6,23 @@ interface TopbarProps {
   activeType: string;
   activeDirId: string;
   dirs: MediaDir[];
+  expanded: boolean;
+  collapsed: boolean;
+  viewMode: 'cards' | 'tiles';
+  cardsLayout: 'grid' | 'masonry';
+  groupMode: 'default' | 'author';
+  sortMode: 'publish' | 'ingest';
   onQChange: (q: string) => void;
   onTypeChange: (type: string) => void;
   onDirChange: (dirId: string) => void;
   onFeedClick: () => void;
   onRefresh: () => void;
+  onExpandedChange: (expanded: boolean) => void;
+  onCollapsedChange: (collapsed: boolean) => void;
+  onViewModeChange: (mode: 'cards' | 'tiles') => void;
+  onCardsLayoutChange: (layout: 'grid' | 'masonry') => void;
+  onGroupModeChange: (mode: 'default' | 'author') => void;
+  onSortModeChange: (mode: 'publish' | 'ingest') => void;
 }
 
 const FILTER_TYPES = ['全部', '视频', '图集', '实况', '混合'];
@@ -20,11 +32,23 @@ export default function Topbar({
   activeType,
   activeDirId,
   dirs,
+  expanded,
+  collapsed,
+  viewMode,
+  cardsLayout,
+  groupMode,
+  sortMode,
   onQChange,
   onTypeChange,
   onDirChange,
   onFeedClick,
   onRefresh,
+  onExpandedChange,
+  onCollapsedChange,
+  onViewModeChange,
+  onCardsLayoutChange,
+  onGroupModeChange,
+  onSortModeChange,
 }: TopbarProps) {
   const [qValue, setQValue] = React.useState(q);
   const qTimerRef = React.useRef<number>();
@@ -49,7 +73,7 @@ export default function Topbar({
   }, [qValue]);
 
   return (
-    <header className="topbar">
+    <header className={`topbar ${collapsed ? 'collapsed' : ''}`}>
       <div className="brand">
         <div className="logo" aria-hidden="true">
           M
@@ -58,6 +82,14 @@ export default function Topbar({
           <div className="title">媒体资源库</div>
           <div className="subtitle">按发布时间 / 发布人 / 主题自动分组，支持混合资源预览</div>
         </div>
+        <button
+          id="toggleTopbarCollapsedMini"
+          className="iconBtn mobileOnly"
+          title={collapsed ? '展开工具栏' : '收起工具栏'}
+          onClick={() => onCollapsedChange(!collapsed)}
+        >
+          {collapsed ? '▾' : '▴'}
+        </button>
       </div>
 
       <div className="controls">
@@ -97,6 +129,17 @@ export default function Topbar({
             ))}
           </select>
         </div>
+        <div className="dirPick">
+          <select
+            id="sortSelect"
+            title="排序方式"
+            value={sortMode}
+            onChange={(e) => onSortModeChange(e.target.value as 'publish' | 'ingest')}
+          >
+            <option value="publish">按发布时间</option>
+            <option value="ingest">按入库时间</option>
+          </select>
+        </div>
         <div className="filters" id="filters">
           {FILTER_TYPES.map((type) => (
             <button
@@ -110,11 +153,58 @@ export default function Topbar({
           ))}
         </div>
         <div className="metaActions">
+          <button
+            id="toggleTiles"
+            className={`btn ghost toggle ${viewMode === 'tiles' ? 'active' : ''}`}
+            title="平铺模式：全部资源瀑布流展示"
+            onClick={() => onViewModeChange(viewMode === 'tiles' ? 'cards' : 'tiles')}
+          >
+            平铺
+          </button>
+
+          {viewMode === 'cards' && (
+            <>
+              <button
+                id="toggleMasonry"
+                className={`btn ghost toggle ${cardsLayout === 'masonry' ? 'active' : ''}`}
+                title="瀑布流：卡片以 columns 方式排列"
+                onClick={() => onCardsLayoutChange(cardsLayout === 'masonry' ? 'grid' : 'masonry')}
+              >
+                瀑布流
+              </button>
+
+              <button
+                id="toggleGroupMode"
+                className={`btn ghost toggle ${groupMode === 'author' ? 'active' : ''}`}
+                title="切换分组：默认 / 按发布人"
+                onClick={() => onGroupModeChange(groupMode === 'author' ? 'default' : 'author')}
+              >
+                按发布人
+              </button>
+            </>
+          )}
+
+          <button
+            id="toggleExpanded"
+            className={`btn ghost toggle ${expanded ? 'active' : ''}`}
+            title="切换展开模式（更大卡片/更多缩略图）"
+            onClick={() => onExpandedChange(!expanded)}
+          >
+            展开
+          </button>
           <button id="refresh" className="btn" onClick={onRefresh}>
             刷新
           </button>
           <button id="feed" className="btn ghost" title="沉浸式上滑浏览" onClick={onFeedClick}>
             沉浸
+          </button>
+          <button
+            id="toggleTopbarCollapsed"
+            className="btn ghost toggle mobileOnly"
+            title={collapsed ? '展开工具栏' : '收起工具栏'}
+            onClick={() => onCollapsedChange(!collapsed)}
+          >
+            {collapsed ? '展开工具栏' : '收起工具栏'}
           </button>
         </div>
       </div>
