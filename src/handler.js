@@ -5,8 +5,12 @@ const { send, sendJson } = require("./http/respond");
 const { safeJoin, serveStaticFile } = require("./http/static");
 const { inspectMp4 } = require("./media");
 const { dirExists } = require("./utils/fs");
+const { createThumbGenerator, ensureThumbForImage } = require("./thumbs");
+const { createVideoThumbGenerator, ensureVideoThumb } = require("./videoThumbs");
 
-function createHandler({ publicDir, mediaStore, indexer }) {
+function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
+  const thumbGenerator = createThumbGenerator({ rootDir });
+  const videoThumbGenerator = createVideoThumbGenerator({ rootDir });
   return async function handler(req, res) {
     const u = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     const pathname = decodeURIComponent(u.pathname);
@@ -176,6 +180,81 @@ function createHandler({ publicDir, mediaStore, indexer }) {
       } catch (e) {
         return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
       }
+    }
+
+    if (req.method === "GET" && pathname.startsWith("/thumb/")) {
+      const rel = pathname.slice("/thumb/".length); // dirId/filename
+      const slash = rel.indexOf("/");
+      if (slash === -1) return send(res, 400, "Bad path");
+      const dirId = rel.slice(0, slash);
+      const fileRel = rel.slice(slash + 1);
+      const dir = mediaStore.getMediaDirs().find((d) => d.id === dirId);
+      if (!dir) return send(res, 404, "Dir not found");
+      const sourcePath = safeJoin(dir.path, fileRel);
+      if (!sourcePath) return send(res, 400, "Bad path");
+
+      // Try to serve existing thumb
+      const thumbPath = thumbGenerator.getThumbPath({ dirId, filename: fileRel });
+      const ok = await serveStaticFile(req, res, thumbPath);
+      if (ok) return;
+
+      // Fallback: generate on-demand if thumb doesn't exist
+      try {
+        const result = await ensureThumbForImage({
+          rootDir,
+          absSourcePath: sourcePath,
+          dirId,
+          filename: fileRel,
+        });
+        if (result.ok && result.path) {
+          const served = await serveStaticFile(req, res, result.path);
+          if (served) return;
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(`[thumbs] On-demand generation failed for ${dirId}/${fileRel}: ${String(e?.message || e)}`);
+      }
+
+      // If thumb generation failed or file doesn't exist, fallback to original image
+      const fallbackOk = await serveStaticFile(req, res, sourcePath);
+      return fallbackOk ? undefined : send(res, 404, "Not found");
+    }
+
+    if (req.method === "GET" && pathname.startsWith("/vthumb/")) {
+      const rel = pathname.slice("/vthumb/".length); // dirId/filename
+      const slash = rel.indexOf("/");
+      if (slash === -1) return send(res, 400, "Bad path");
+      const dirId = rel.slice(0, slash);
+      const fileRel = rel.slice(slash + 1);
+      const dir = mediaStore.getMediaDirs().find((d) => d.id === dirId);
+      if (!dir) return send(res, 404, "Dir not found");
+      const sourcePath = safeJoin(dir.path, fileRel);
+      if (!sourcePath) return send(res, 400, "Bad path");
+
+      // Try to serve existing thumb
+      const thumbPath = videoThumbGenerator.getThumbPath({ dirId, filename: fileRel });
+      const ok = await serveStaticFile(req, res, thumbPath);
+      if (ok) return;
+
+      // Fallback: generate on-demand if thumb doesn't exist
+      try {
+        const result = await ensureVideoThumb({
+          rootDir,
+          absVideoPath: sourcePath,
+          dirId,
+          filename: fileRel,
+        });
+        if (result.ok && result.path) {
+          const served = await serveStaticFile(req, res, result.path);
+          if (served) return;
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(`[vthumbs] On-demand generation failed for ${dirId}/${fileRel}: ${String(e?.message || e)}`);
+      }
+
+      // If thumb generation failed, return 404 (don't fallback to video file)
+      return send(res, 404, "Video thumb not found");
     }
 
     if (req.method === "GET" && pathname.startsWith("/media/")) {

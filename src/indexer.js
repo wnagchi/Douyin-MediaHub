@@ -6,6 +6,8 @@ const { DatabaseSync } = require("node:sqlite");
 
 const { parseMediaFilename } = require("./media");
 const { dirExists } = require("./utils/fs");
+const { createThumbGenerator } = require("./thumbs");
+const { createVideoThumbGenerator } = require("./videoThumbs");
 
 function sha1Hex(s) {
   return crypto.createHash("sha1").update(String(s)).digest("hex");
@@ -39,6 +41,10 @@ function createIndexer({ rootDir, mediaStore }) {
   let db = null;
   /** @type {Promise<any> | null} */
   let running = null;
+
+  // Create thumb generators
+  const thumbGenerator = createThumbGenerator({ rootDir });
+  const videoThumbGenerator = createVideoThumbGenerator({ rootDir });
 
   function initDb() {
     if (db) return db;
@@ -260,6 +266,22 @@ CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
             if (!tt) continue;
             insertType.run(dir.id, name, tt);
           }
+
+          // Generate thumbnail for images
+          if (p.kind === "image") {
+            thumbGenerator.generateThumb({ absSourcePath: filePath, dirId: dir.id, filename: name }).catch((e) => {
+              // eslint-disable-next-line no-console
+              console.warn(`[thumbs] Failed to generate thumb for ${dir.id}/${name}: ${String(e?.message || e)}`);
+            });
+          }
+
+          // Generate thumbnail for videos
+          if (p.kind === "video") {
+            videoThumbGenerator.generateThumb({ absVideoPath: filePath, dirId: dir.id, filename: name }).catch((e) => {
+              // eslint-disable-next-line no-console
+              console.warn(`[vthumbs] Failed to generate thumb for ${dir.id}/${name}: ${String(e?.message || e)}`);
+            });
+          }
         }
 
         // delete files that disappeared in this dir (only parsed ones are tracked)
@@ -415,14 +437,25 @@ CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
         theme,
         groupType,
         types,
-        items: items.map((it) => ({
-          filename: it.filename,
-          dirId: it.dirId,
-          url: `/media/${encodeURIComponent(it.dirId)}/${encodeURIComponent(it.filename)}`,
-          ext: it.ext,
-          kind: it.kind,
-          seq: it.seq == null ? null : Number(it.seq),
-        })),
+        items: items.map((it) => {
+          const item = {
+            filename: it.filename,
+            dirId: it.dirId,
+            url: `/media/${encodeURIComponent(it.dirId)}/${encodeURIComponent(it.filename)}`,
+            ext: it.ext,
+            kind: it.kind,
+            seq: it.seq == null ? null : Number(it.seq),
+          };
+          // Add thumbUrl for images
+          if (it.kind === "image") {
+            item.thumbUrl = `/thumb/${encodeURIComponent(it.dirId)}/${encodeURIComponent(it.filename)}`;
+          }
+          // Add thumbUrl for videos
+          if (it.kind === "video") {
+            item.thumbUrl = `/vthumb/${encodeURIComponent(it.dirId)}/${encodeURIComponent(it.filename)}`;
+          }
+          return item;
+        }),
       };
     });
 

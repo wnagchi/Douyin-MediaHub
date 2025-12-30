@@ -20,12 +20,11 @@ interface MediaGridProps {
   layout: 'grid' | 'masonry';
   hasMore: boolean;
   totalGroups: number;
+  loading: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
   onThumbClick: (groupIdx: number, itemIdx: number) => void;
 }
-
-const THUMB_ROOT_MARGIN = '240px 0px';
 
 export default function MediaGrid({
   sections,
@@ -33,71 +32,46 @@ export default function MediaGrid({
   layout,
   hasMore,
   totalGroups,
+  loading,
   loadingMore,
   onLoadMore,
   onThumbClick,
 }: MediaGridProps) {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const moreObserverRef = useRef<IntersectionObserver | null>(null);
-  const thumbObserverRef = useRef<IntersectionObserver | null>(null);
+  const loadingMoreRef = useRef<boolean>(loadingMore);
+  const onLoadMoreRef = useRef<() => void>(onLoadMore);
+
+  useEffect(() => {
+    loadingMoreRef.current = loadingMore;
+  }, [loadingMore]);
+  useEffect(() => {
+    onLoadMoreRef.current = onLoadMore;
+  }, [onLoadMore]);
 
   useEffect(() => {
     if (!moreObserverRef.current) {
       moreObserverRef.current = new IntersectionObserver(
         (entries) => {
           for (const e of entries) {
-            if (e.isIntersecting && !loadingMore) {
-              onLoadMore();
+            if (e.isIntersecting && !loadingMoreRef.current) {
+              // #region agent log
+              fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'run1',hypothesisId:'H3',location:'MediaGrid.tsx:moreObserver',message:'sentinel intersect -> onLoadMore',data:{loadingMore:loadingMoreRef.current,hasMore,totalGroups},timestamp:Date.now()})}).catch(()=>{});
+              // #endregion
+              onLoadMoreRef.current();
             }
           }
         },
-        { root: null, rootMargin: '600px 0px', threshold: 0.01 }
-      );
-    }
-
-    if (!thumbObserverRef.current) {
-      const unloadOffscreen = window.matchMedia && window.matchMedia('(max-width: 520px)').matches;
-      thumbObserverRef.current = new IntersectionObserver(
-        (entries) => {
-          for (const e of entries) {
-            const v = e.target;
-            if (!(v instanceof HTMLVideoElement)) continue;
-            if (e.isIntersecting) {
-              if (!v.src) {
-                const src = v.dataset.src;
-                if (!src) continue;
-                v.preload = 'metadata';
-                v.src = src;
-                try {
-                  v.load();
-                } catch {}
-              }
-            } else {
-              try {
-                v.pause();
-              } catch {}
-              if (unloadOffscreen && v.src) {
-                v.removeAttribute('src');
-                try {
-                  v.load();
-                } catch {}
-              }
-            }
-          }
-        },
-        { root: null, rootMargin: THUMB_ROOT_MARGIN, threshold: 0.01 }
+        // “将触底就加载”：更早触发加载更多
+        { root: null, rootMargin: '900px 0px', threshold: 0.01 }
       );
     }
 
     return () => {
-      if (moreObserverRef.current) {
-        moreObserverRef.current.disconnect();
-      }
-      if (thumbObserverRef.current) {
-        thumbObserverRef.current.disconnect();
-      }
+      moreObserverRef.current?.disconnect();
+      moreObserverRef.current = null;
     };
-  }, [loadingMore, onLoadMore]);
+  }, []);
 
   useEffect(() => {
     if (hasMore && sentinelRef.current && moreObserverRef.current) {
@@ -112,20 +86,39 @@ export default function MediaGrid({
 
   const gridRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!thumbObserverRef.current || !gridRef.current) return;
-    const videos = gridRef.current.querySelectorAll('video[data-src]');
-    videos.forEach((v) => thumbObserverRef.current!.observe(v));
-    return () => {
-      videos.forEach((v) => thumbObserverRef.current?.unobserve(v));
-    };
-  }, [sections]);
-
   const displayedGroups = sections.reduce((acc, s) => acc + (s.items?.length || 0), 0);
   const isMasonry = layout === 'masonry';
   const masonryCols = expanded
     ? 'columns-1 lg:columns-2'
     : 'columns-1 md:columns-2 xl:columns-3';
+
+  if (loading && displayedGroups === 0) {
+    const skCount = expanded ? 8 : 12;
+    return (
+      <div
+        id="grid"
+        className={isMasonry ? '' : `grid ${expanded ? 'expanded' : ''}`}
+        ref={gridRef}
+      >
+        <div className={isMasonry ? `${masonryCols} [column-gap:14px]` : `sectionGrid ${expanded ? 'expanded' : ''}`}>
+          {Array.from({ length: skCount }).map((_, i) => (
+            <div
+              key={`sk-${i}`}
+              className={isMasonry ? 'break-inside-avoid mb-3 inline-block w-full' : ''}
+            >
+              <div className="rounded-[16px] border border-white/10 bg-black/20 overflow-hidden">
+                <div className="h-[220px] bg-white/10 animate-pulse"></div>
+                <div className="p-3">
+                  <div className="h-4 w-2/3 bg-white/10 animate-pulse rounded"></div>
+                  <div className="mt-2 h-3 w-1/2 bg-white/10 animate-pulse rounded"></div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

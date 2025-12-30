@@ -151,7 +151,7 @@ async function main({ rootDir = __dirname ? path.resolve(__dirname, "..") : proc
     console.warn("[indexer] startup updateCheck failed:", String(e?.message || e));
   }
 
-  const handler = createHandler({ publicDir: distDir, mediaStore, indexer });
+  const handler = createHandler({ publicDir: distDir, mediaStore, indexer, rootDir: root });
   const server = http.createServer((req, res) => {
     handler(req, res).catch((e) => {
       res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });

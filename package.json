@@ -12,8 +12,10 @@
     "scan": "node app.js --scan"
   },
   "dependencies": {
+    "ffmpeg-static": "^5.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "sharp": "^0.33.0",
     "swiper": "^11.1.5"
   },
   "devDependencies": {

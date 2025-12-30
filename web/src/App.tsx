@@ -102,6 +102,21 @@ function App() {
     }
   })();
 
+  // #region agent log
+  (() => {
+    let storageOk = false;
+    try {
+      const k = '__ls_probe__';
+      localStorage.setItem(k, '1');
+      storageOk = localStorage.getItem(k) === '1';
+      localStorage.removeItem(k);
+    } catch {
+      storageOk = false;
+    }
+    fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'run2',hypothesisId:'H5',location:'App.tsx:initState',message:'initial UI prefs',data:{origin:typeof location!=='undefined'?location.origin:'',ua:typeof navigator!=='undefined'?String(navigator.userAgent||''):'',storageOk,initialExpanded,initialGroupMode,initialViewMode,initialCardsLayout,initialTopbarCollapsed,initialSortMode},timestamp:Date.now()})}).catch(()=>{});
+  })();
+  // #endregion
+
   const [state, setState] = useState<AppState>({
     groups: [],
     activeType: '全部',
@@ -525,6 +540,7 @@ function App() {
             expanded={state.expanded}
             hasMore={state.pagination.hasMore || state.renderLimit < state.groups.length}
             totalGroups={state.pagination.total || state.groups.length}
+            loading={state.loading}
             loadingMore={state.loadingMore}
             onLoadMore={handleLoadMore}
             onOpen={(groupIdx, itemIdx) => handleOpenModal(groupIdx, itemIdx, false)}
@@ -536,6 +552,7 @@ function App() {
             layout={state.cardsLayout}
             hasMore={state.pagination.hasMore || state.renderLimit < state.groups.length}
             totalGroups={state.pagination.total || state.groups.length}
+            loading={state.loading}
             loadingMore={state.loadingMore}
             onLoadMore={handleLoadMore}
             onThumbClick={(groupIdx, itemIdx) => handleOpenModal(groupIdx, itemIdx, false)}

@@ -182,7 +182,7 @@ async function scanMedia(mediaDirs) {
 
     const g = groupsMap.get(key);
     for (const t of item.declaredTypes) g.types.add(t);
-    g.items.push({
+    const mediaItem = {
       filename: item.filename,
       dirId: item.dirId,
       dirLabel: item.dirLabel,
@@ -191,7 +191,16 @@ async function scanMedia(mediaDirs) {
       kind: item.kind,
       seq: item.seq,
       declaredType: item.typeText,
-    });
+    };
+    // Add thumbUrl for images
+    if (item.kind === "image") {
+      mediaItem.thumbUrl = `/thumb/${encodeURIComponent(item.dirId)}/${encodeURIComponent(item.filename)}`;
+    }
+    // Add thumbUrl for videos
+    if (item.kind === "video") {
+      mediaItem.thumbUrl = `/vthumb/${encodeURIComponent(item.dirId)}/${encodeURIComponent(item.filename)}`;
+    }
+    g.items.push(mediaItem);
   }
 
   const groups = Array.from(groupsMap.values()).map((g) => {

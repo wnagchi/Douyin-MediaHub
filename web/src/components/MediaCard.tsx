@@ -1,5 +1,6 @@
 import { MediaGroup } from '../api';
 import { escHtml } from '../utils';
+import LazyImage from './LazyImage';
 
 interface MediaCardProps {
   group: MediaGroup;
@@ -105,11 +106,12 @@ export default function MediaCard({
                 onClick={() => handleThumbClick(idx)}
                 onKeyDown={(e) => handleThumbKeyDown(e, idx)}
               >
-                {isVideo ? (
-                  <video preload="none" muted playsInline data-src={escHtml(it.url)}></video>
-                ) : (
-                  <img loading="lazy" src={escHtml(it.url)} alt="" />
-                )}
+                <LazyImage
+                  wrapperClassName="w-full h-full"
+                  className="w-full h-full object-cover"
+                  src={escHtml(it.thumbUrl ?? it.url)}
+                  alt=""
+                />
                 <div className="overlay">
                   <span className="badge">{escHtml(badgeText)}</span>
                   {isVideo ? (

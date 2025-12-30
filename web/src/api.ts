@@ -9,6 +9,7 @@ export interface MediaItem {
   kind: 'video' | 'image' | 'other';
   filename: string;
   url: string;
+  thumbUrl?: string;
   dirId?: string;
   seq?: number;
 }
