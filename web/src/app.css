@@ -311,11 +311,19 @@ body{
 }
 .sectionGrid{
   display:grid;
-  grid-template-columns: repeat(12, 1fr);
+  /* 合集模式：固定 2 列 */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 .sectionGrid.expanded{
   gap: 14px;
+}
+
+/* PC：合集模式 4 列 */
+@media (min-width: 960px){
+  .sectionGrid{
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .listFooter{
@@ -335,7 +343,6 @@ body{
 }
 
 .card{
-  grid-column: span 6;
   background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.05));
   border: 1px solid rgba(255,255,255,.10);
   border-radius: var(--radius2);
@@ -343,8 +350,7 @@ body{
   overflow:hidden;
   position:relative;
 }
-.grid.expanded .card,
-.sectionGrid.expanded .card{
+.grid.expanded > .card{
   grid-column: span 12;
 }
 .card::before{
@@ -466,9 +472,61 @@ body{
 }
 
 @media (max-width: 960px){
-  .card{ grid-column: span 12; }
+  .grid > .card{ grid-column: span 12; }
   .search{ min-width: 100%; }
   .thumb{ grid-column: span 3; }
+}
+
+/* 合集模式封面：9:16 */
+.albumCoverWrap{
+  margin-top: 12px;
+}
+.albumCover{
+  position: relative;
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.35);
+  cursor: pointer;
+}
+.albumCoverImg{
+  width: 100%;
+  height: 100%;
+}
+.albumCoverImgEl{
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.albumCoverOverlay{
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 10px;
+  background: linear-gradient(180deg, rgba(0,0,0,0) 50%, rgba(0,0,0,.35) 100%);
+  pointer-events: none;
+}
+.albumCoverPlay{
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(0,0,0,.55);
+  border: 1px solid rgba(255,255,255,.18);
+  color: rgba(255,255,255,.92);
+  font-size: 14px;
+  backdrop-filter: blur(10px);
+}
+.albumCoverEmpty{
+  display: grid;
+  place-items: center;
+  color: rgba(255,255,255,.55);
+  font-size: 13px;
 }
 @media (max-width: 520px){
   .mobileOnly{ display:inline-flex; }

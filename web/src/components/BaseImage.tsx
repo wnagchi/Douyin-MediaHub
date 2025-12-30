@@ -6,11 +6,15 @@ interface BaseImageProps {
   className?: string;
   wrapperClassName?: string;
   wrapperStyle?: React.CSSProperties;
+  imgStyle?: React.CSSProperties;
   rootMargin?: string;
   onLoad?: (img: HTMLImageElement) => void;
   showSkeleton?: boolean;
   decoding?: 'sync' | 'async' | 'auto';
 }
+
+// 虚拟列表场景：图片会被卸载/重新挂载。用一个轻量缓存避免“回到视口就闪一下骨架”的体验。
+const loadedSrcCache = new Set<string>();
 
 /**
  * 统一基础图片组件
@@ -29,19 +33,22 @@ export default function BaseImage({
   className = '',
   wrapperClassName = '',
   wrapperStyle,
+  imgStyle,
   rootMargin = '240px 0px',
   onLoad,
   showSkeleton = true,
   decoding = 'async',
 }: BaseImageProps) {
   const imgRef = useRef<HTMLImageElement>(null);
-  const [shouldLoad, setShouldLoad] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const cached = loadedSrcCache.has(src);
+  const [shouldLoad, setShouldLoad] = useState(cached);
+  const [loaded, setLoaded] = useState(cached);
 
   useEffect(() => {
     // src changed => reset states
-    setShouldLoad(false);
-    setLoaded(false);
+    const nextCached = loadedSrcCache.has(src);
+    setShouldLoad(nextCached);
+    setLoaded(nextCached);
   }, [src]);
 
   useEffect(() => {
@@ -81,8 +88,9 @@ export default function BaseImage({
         {...(shouldLoad ? { src } : {})}
         alt={alt}
         className={`${className} transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`}
-        style={{ width: '100%', height: 'auto' }}
+        style={{ width: '100%', height: 'auto', ...(imgStyle || {}) }}
         onLoad={(e) => {
+          loadedSrcCache.add(src);
           setLoaded(true);
           onLoad?.(e.currentTarget);
         }}

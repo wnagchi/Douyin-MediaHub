@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "ffmpeg-static": "^5.2.0",
+    "masonic": "^4.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "sharp": "^0.33.0",

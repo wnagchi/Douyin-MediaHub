@@ -45,6 +45,8 @@ export default function MediaCard({
   const type = typeLabel(group);
   const tags = typeTags(group);
   const items = Array.isArray(group.items) ? group.items : [];
+  const first = items[0] || null;
+  const firstIsVideo = first?.kind === 'video';
 
   const handleThumbClick = (itemIdx: number) => {
     onThumbClick(groupIdx, itemIdx);
@@ -88,42 +90,32 @@ export default function MediaCard({
           </div>
         </div>
 
-        <div className="thumbs" data-group={groupIdx}>
-          {items.map((it, idx) => {
-            const isVideo = it.kind === 'video';
-            const badgeText = it.seq != null ? `_${it.seq}` : isVideo ? 'mp4' : 'img';
-
-            return (
-              <div
-                key={idx}
-                className="thumb"
-                role="button"
-                tabIndex={0}
-                data-g={groupIdx}
-                data-i={idx}
-                title={escHtml(it.filename)}
-                onClick={() => handleThumbClick(idx)}
-                onKeyDown={(e) => handleThumbKeyDown(e, idx)}
-              >
-                <BaseImage
-                  wrapperClassName="w-full"
-                  className="w-full"
-                  src={escHtml(it.thumbUrl ?? it.url)}
-                  alt=""
-                />
-                <div className="overlay">
-                  <span className="badge">{escHtml(badgeText)}</span>
-                  {isVideo ? (
-                    <div className="play" aria-hidden="true">
-                      ▶
-                    </div>
-                  ) : (
-                    <div style={{ width: '30px' }}></div>
-                  )}
-                </div>
+        <div className="albumCoverWrap" data-group={groupIdx}>
+          {first ? (
+            <div
+              className="albumCover"
+              role="button"
+              tabIndex={0}
+              data-g={groupIdx}
+              data-i={0}
+              title={escHtml(first.filename)}
+              onClick={() => handleThumbClick(0)}
+              onKeyDown={(e) => handleThumbKeyDown(e, 0)}
+            >
+              <BaseImage
+                wrapperClassName="albumCoverImg"
+                className="albumCoverImgEl"
+                src={escHtml(first.thumbUrl ?? first.url)}
+                alt=""
+                imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+              <div className="albumCoverOverlay" aria-hidden="true">
+                {firstIsVideo && <div className="albumCoverPlay">▶</div>}
               </div>
-            );
-          })}
+            </div>
+          ) : (
+            <div className="albumCover albumCoverEmpty">暂无内容</div>
+          )}
         </div>
       </div>
     </article>
