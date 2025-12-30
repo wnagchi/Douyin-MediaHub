@@ -31,9 +31,7 @@ interface AppState {
   renderLimit: number;
   expanded: boolean;
   topbarCollapsed: boolean;
-  viewMode: 'cards' | 'tiles';
-  cardsLayout: 'grid' | 'masonry';
-  groupMode: 'default' | 'author';
+  viewMode: 'masonry' | 'album';
   sortMode: 'publish' | 'ingest';
   modal: {
     open: boolean;
@@ -62,28 +60,15 @@ function App() {
       return false;
     }
   })();
-  const initialGroupMode: 'default' | 'author' = (() => {
-    try {
-      const v = localStorage.getItem('ui_group_mode');
-      return v === 'author' ? 'author' : 'default';
-    } catch {
-      return 'default';
-    }
-  })();
-  const initialViewMode: 'cards' | 'tiles' = (() => {
+  const initialViewMode: 'masonry' | 'album' = (() => {
     try {
       const v = localStorage.getItem('ui_view_mode');
-      return v === 'tiles' ? 'tiles' : 'cards';
+      // 兼容旧值：'tiles' -> 'masonry', 'cards' -> 'album'
+      if (v === 'tiles' || v === 'masonry') return 'masonry';
+      if (v === 'cards' || v === 'album') return 'album';
+      return 'masonry';
     } catch {
-      return 'cards';
-    }
-  })();
-  const initialCardsLayout: 'grid' | 'masonry' = (() => {
-    try {
-      const v = localStorage.getItem('ui_cards_layout');
-      return v === 'masonry' ? 'masonry' : 'grid';
-    } catch {
-      return 'grid';
+      return 'masonry';
     }
   })();
   const initialTopbarCollapsed = (() => {
@@ -102,21 +87,6 @@ function App() {
     }
   })();
 
-  // #region agent log
-  (() => {
-    let storageOk = false;
-    try {
-      const k = '__ls_probe__';
-      localStorage.setItem(k, '1');
-      storageOk = localStorage.getItem(k) === '1';
-      localStorage.removeItem(k);
-    } catch {
-      storageOk = false;
-    }
-    fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'run2',hypothesisId:'H5',location:'App.tsx:initState',message:'initial UI prefs',data:{origin:typeof location!=='undefined'?location.origin:'',ua:typeof navigator!=='undefined'?String(navigator.userAgent||''):'',storageOk,initialExpanded,initialGroupMode,initialViewMode,initialCardsLayout,initialTopbarCollapsed,initialSortMode},timestamp:Date.now()})}).catch(()=>{});
-  })();
-  // #endregion
-
   const [state, setState] = useState<AppState>({
     groups: [],
     activeType: '全部',
@@ -126,8 +96,6 @@ function App() {
     expanded: initialExpanded,
     topbarCollapsed: initialTopbarCollapsed,
     viewMode: initialViewMode,
-    cardsLayout: initialCardsLayout,
-    groupMode: initialGroupMode,
     sortMode: initialSortMode,
     modal: { open: false, groupIdx: 0, itemIdx: 0 },
     feedMode: false,
@@ -380,6 +348,13 @@ function App() {
     }));
   };
 
+  const handleFeedModeChange = (newFeedMode: boolean) => {
+    setState((prev) => ({
+      ...prev,
+      feedMode: newFeedMode,
+    }));
+  };
+
   const handleModalStep = (delta: number) => {
     setState((prev) => {
       if (!prev.modal.open) return prev;
@@ -409,34 +384,12 @@ function App() {
   const visibleItems: MediaGridItem[] = state.groups.slice(0, visibleCount).map((group, groupIdx) => ({ group, groupIdx }));
 
   const sections: MediaGridSection[] = (() => {
-    if (state.viewMode !== 'cards') return [{ key: 'all', title: '', items: visibleItems }];
-    if (state.groupMode !== 'author') return [{ key: 'all', title: '', items: visibleItems }];
-
-    const map = new Map<string, MediaGridItem[]>();
-    const order: string[] = [];
-    for (const it of visibleItems) {
-      const author = String(it.group.author || '').trim() || '(未知发布人)';
-      if (!map.has(author)) {
-        map.set(author, []);
-        order.push(author);
-      }
-      map.get(author)!.push(it);
-    }
-
-    return order.map((author) => {
-      const items = map.get(author) || [];
-      const totalItems = items.reduce((acc, x) => acc + (x.group.items?.length || 0), 0);
-      return {
-        key: `author:${author}`,
-        title: author,
-        meta: `${items.length} groups | ${totalItems} items`,
-        items,
-      };
-    });
+    // 合集模式：直接返回所有 items，不再按 author 分组
+    return [{ key: 'all', title: '', items: visibleItems }];
   })();
 
   const tileItems: TileItem[] = (() => {
-    if (state.viewMode !== 'tiles') return [];
+    if (state.viewMode !== 'masonry') return [];
     const list: TileItem[] = [];
     for (const { group, groupIdx } of visibleItems) {
       const items = Array.isArray(group.items) ? group.items : [];
@@ -460,8 +413,6 @@ function App() {
         expanded={state.expanded}
         collapsed={state.topbarCollapsed}
         viewMode={state.viewMode}
-        cardsLayout={state.cardsLayout}
-        groupMode={state.groupMode}
         sortMode={state.sortMode}
         onQChange={(q) => refreshWithOverrides({ q })}
         onTypeChange={(type) => refreshWithOverrides({ activeType: type })}
@@ -482,23 +433,11 @@ function App() {
           } catch {}
           setState((prev) => ({ ...prev, topbarCollapsed: collapsed }));
         }}
-        onViewModeChange={(mode: 'cards' | 'tiles') => {
+        onViewModeChange={(mode: 'masonry' | 'album') => {
           try {
             localStorage.setItem('ui_view_mode', mode);
           } catch {}
           setState((prev) => ({ ...prev, viewMode: mode }));
-        }}
-        onCardsLayoutChange={(layout: 'grid' | 'masonry') => {
-          try {
-            localStorage.setItem('ui_cards_layout', layout);
-          } catch {}
-          setState((prev) => ({ ...prev, cardsLayout: layout }));
-        }}
-        onGroupModeChange={(mode) => {
-          try {
-            localStorage.setItem('ui_group_mode', mode);
-          } catch {}
-          setState((prev) => ({ ...prev, groupMode: mode }));
         }}
         onSortModeChange={(mode) => {
           try {
@@ -534,7 +473,7 @@ function App() {
             setup={state.setup}
             onSave={handleSaveMediaDirs}
           />
-        ) : state.viewMode === 'tiles' ? (
+        ) : state.viewMode === 'masonry' ? (
           <MediaTiles
             items={tileItems}
             expanded={state.expanded}
@@ -549,7 +488,6 @@ function App() {
           <MediaGrid
             sections={sections}
             expanded={state.expanded}
-            layout={state.cardsLayout}
             hasMore={state.pagination.hasMore || state.renderLimit < state.groups.length}
             totalGroups={state.pagination.total || state.groups.length}
             loading={state.loading}
@@ -569,6 +507,7 @@ function App() {
           onClose={handleCloseModal}
           onStep={handleModalStep}
           onGroupStep={handleGroupStep}
+          onFeedModeChange={handleFeedModeChange}
         />
       )}
     </>

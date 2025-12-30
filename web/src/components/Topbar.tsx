@@ -8,9 +8,7 @@ interface TopbarProps {
   dirs: MediaDir[];
   expanded: boolean;
   collapsed: boolean;
-  viewMode: 'cards' | 'tiles';
-  cardsLayout: 'grid' | 'masonry';
-  groupMode: 'default' | 'author';
+  viewMode: 'masonry' | 'album';
   sortMode: 'publish' | 'ingest';
   onQChange: (q: string) => void;
   onTypeChange: (type: string) => void;
@@ -19,9 +17,7 @@ interface TopbarProps {
   onRefresh: () => void;
   onExpandedChange: (expanded: boolean) => void;
   onCollapsedChange: (collapsed: boolean) => void;
-  onViewModeChange: (mode: 'cards' | 'tiles') => void;
-  onCardsLayoutChange: (layout: 'grid' | 'masonry') => void;
-  onGroupModeChange: (mode: 'default' | 'author') => void;
+  onViewModeChange: (mode: 'masonry' | 'album') => void;
   onSortModeChange: (mode: 'publish' | 'ingest') => void;
 }
 
@@ -35,8 +31,6 @@ export default function Topbar({
   expanded,
   collapsed,
   viewMode,
-  cardsLayout,
-  groupMode,
   sortMode,
   onQChange,
   onTypeChange,
@@ -46,8 +40,6 @@ export default function Topbar({
   onExpandedChange,
   onCollapsedChange,
   onViewModeChange,
-  onCardsLayoutChange,
-  onGroupModeChange,
   onSortModeChange,
 }: TopbarProps) {
   const [qValue, setQValue] = React.useState(q);
@@ -154,35 +146,13 @@ export default function Topbar({
         </div>
         <div className="metaActions">
           <button
-            id="toggleTiles"
-            className={`btn ghost toggle ${viewMode === 'tiles' ? 'active' : ''}`}
-            title="平铺模式：全部资源瀑布流展示"
-            onClick={() => onViewModeChange(viewMode === 'tiles' ? 'cards' : 'tiles')}
+            id="toggleViewMode"
+            className={`btn ghost toggle ${viewMode === 'masonry' ? 'active' : ''}`}
+            title={viewMode === 'masonry' ? '瀑布流模式：图片全部展示，手机2列，电脑自适应' : '合集模式：按组展示，手机1列，电脑2列'}
+            onClick={() => onViewModeChange(viewMode === 'masonry' ? 'album' : 'masonry')}
           >
-            平铺
+            {viewMode === 'masonry' ? '瀑布流' : '合集'}
           </button>
-
-          {viewMode === 'cards' && (
-            <>
-              <button
-                id="toggleMasonry"
-                className={`btn ghost toggle ${cardsLayout === 'masonry' ? 'active' : ''}`}
-                title="瀑布流：卡片以 columns 方式排列"
-                onClick={() => onCardsLayoutChange(cardsLayout === 'masonry' ? 'grid' : 'masonry')}
-              >
-                瀑布流
-              </button>
-
-              <button
-                id="toggleGroupMode"
-                className={`btn ghost toggle ${groupMode === 'author' ? 'active' : ''}`}
-                title="切换分组：默认 / 按发布人"
-                onClick={() => onGroupModeChange(groupMode === 'author' ? 'default' : 'author')}
-              >
-                按发布人
-              </button>
-            </>
-          )}
 
           <button
             id="toggleExpanded"

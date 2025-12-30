@@ -7,7 +7,68 @@
   .break-inside-avoid{
     break-inside: avoid;
   }
+  /* 瀑布流间距（瀑布流列之间） */
+  .masonry-gap {
+    gap: 12px;
+  }
+  @media (min-width: 768px) {
+    .masonry-gap {
+      gap: 16px;
+    }
+  }
 }
+
+/* 瀑布流 tile 类型徽标（视频 / 图片 / 实况） */
+.tileOverlay{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  z-index: 4; /* 高于图片/骨架，避免被覆盖导致“看不见” */
+}
+.tileOverlayTopLeft{
+  position:absolute;
+  top:8px;
+  left:8px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.tileOverlayTopRight{
+  position:absolute;
+  top:8px;
+  right:8px;
+  width:32px;
+  height:32px;
+  border-radius:999px;
+  display:grid;
+  place-items:center;
+  background: rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,.15);
+  color: rgba(255,255,255,.92);
+  font-size: 14px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0,0,0,.45);
+}
+.tileTypeBadge{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 10px;
+  border-radius:999px;
+  font-size:11px;
+  line-height:1;
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+
+  backdrop-filter:blur(10px);
+}
+.tileTypeBadgeIcon{
+  font-size:12px;
+}
+.tileTypeBadgeText{
+  font-weight:600;
+}
+
 
 :root{
   --bg0:#070A12;
@@ -370,16 +431,9 @@ body{
 .thumb img, .thumb video{
   width:100%;
   height:auto;
-  /* 竖屏内容为主：避免裁剪，按原比例显示 */
+  /* 竖屏内容为主：避免裁剪，按原比例显示，不限制高度 */
   object-fit:contain;
   display:block;
-}
-.thumb{
-  /* 避免单张竖图把卡片撑得过长；如需“完全不限制”，可把 max-height 移除 */
-  max-height: 520px;
-}
-.thumb img, .thumb video{
-  max-height: 520px;
 }
 .thumb video{
   background: rgba(0,0,0,.35);
@@ -498,6 +552,9 @@ body{
   position:fixed;
   inset:0;
   z-index:50;
+  /* 防止滚动穿透 */
+  overscroll-behavior: none;
+  touch-action: pan-y;
 }
 .modalBackdrop{
   position:absolute;
@@ -518,6 +575,8 @@ body{
   display:flex;
   flex-direction:column;
   overflow:hidden;
+  /* 防止滚动穿透 */
+  overscroll-behavior: contain;
 }
 .modalTop{
   padding: 14px 14px 10px;
@@ -536,6 +595,10 @@ body{
   white-space:nowrap;
 }
 .modalBtns{ display:flex; gap:8px; }
+.modalBtns .iconBtn.active{
+  background: rgba(124,92,255,.25);
+  border-color: rgba(124,92,255,.5);
+}
 .modalBody{
   padding: 12px;
   display:grid;
@@ -583,6 +646,9 @@ body{
 .feedSwiper{
   width: 100%;
   height: 100%;
+  /* 防止滚动穿透 */
+  overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 .feedSwiper .swiper-slide{
   display: flex;
@@ -591,6 +657,9 @@ body{
 .itemSwiper{
   width: 100%;
   height: 100%;
+  /* 防止滚动穿透 */
+  overscroll-behavior: contain;
+  touch-action: pan-x;
 }
 .itemSwiper .swiper-slide{
   display:flex;
@@ -619,6 +688,11 @@ body{
   border-radius: 0;
   border: 0;
   background: #000;
+}
+.feedPlaceholder{
+  display: grid;
+  place-items: center;
+  background: rgba(0,0,0,.5);
 }
 .feedEmpty{
   width: 100%;
@@ -667,6 +741,67 @@ body{
 .warnBox code{
   font-family: var(--mono);
   color: rgba(255,255,255,.90);
+}
+
+/* 自定义视频控件（沉浸模式） */
+.customVideoWrapper,
+.videoWrapper{
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.customVideoWrapper{
+  cursor: pointer;
+}
+.customVideoWrapper .modalVideo.customControls{
+  cursor: pointer;
+}
+.customVideoControls{
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 10;
+}
+.customPlayButton{
+  pointer-events: none;
+  opacity: 0.85;
+  transition: opacity 0.2s;
+}
+.customVideoWrapper:hover .customPlayButton{
+  opacity: 1;
+}
+.customVideoWrapper:active .customPlayButton{
+  opacity: 0.7;
+}
+.customMuteButton{
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  background: rgba(0,0,0,.6);
+  border: 1px solid rgba(255,255,255,.3);
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: all 0.2s;
+  z-index: 11;
+}
+.customMuteButton:hover{
+  background: rgba(0,0,0,.75);
+  border-color: rgba(255,255,255,.5);
+  transform: scale(1.1);
+}
+.customMuteButton:active{
+  transform: scale(0.95);
+}
+.customMuteButton svg{
+  width: 20px;
+  height: 20px;
 }
 
 .setupCard{

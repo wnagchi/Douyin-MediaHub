@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MediaGroup, MediaItem } from '../api';
 import { escHtml } from '../utils';
-import LazyImage from './LazyImage';
+import BaseImage from './BaseImage';
 
 export interface TileItem {
   groupIdx: number;
@@ -38,9 +38,10 @@ export default function MediaTiles({
   const loadingMoreRef = useRef<boolean>(loadingMore);
   const onLoadMoreRef = useRef<() => void>(onLoadMore);
 
-  // 用“多列容器”而不是 CSS columns：避免加载新数据/图片解码时触发整页 columns 重新平衡导致闪动
-  const [colCount, setColCount] = useState<number>(1);
-  const [cols, setCols] = useState<TileItem[][]>([[]]);
+  // 用"多列容器"而不是 CSS columns：避免加载新数据/图片解码时触发整页 columns 重新平衡导致闪动
+  // 初始值设为 2，确保至少是两列（手机端最少2列）
+  const [colCount, setColCount] = useState<number>(2);
+  const [cols, setCols] = useState<TileItem[][]>([[], []]);
   const prevInfoRef = useRef<{ count: number; firstKey: string }>({ count: 0, firstKey: '' });
 
   const keyOf = (t: TileItem) => `${t.groupIdx}-${t.itemIdx}`;
@@ -114,9 +115,6 @@ export default function MediaTiles({
         (entries) => {
           for (const e of entries) {
             if (e.isIntersecting && !loadingMoreRef.current) {
-              // #region agent log
-              fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'run2',hypothesisId:'H3',location:'MediaTiles.tsx:moreObserver',message:'sentinel intersect -> onLoadMore',data:{itemsLen:items.length,loadingMore:loadingMoreRef.current,hasMore},timestamp:Date.now()})}).catch(()=>{});
-              // #endregion
               onLoadMoreRef.current();
             }
           }
@@ -143,56 +141,50 @@ export default function MediaTiles({
     };
   }, [hasMore]);
 
-  // 根据容器宽度计算列数：用“列宽阈值”避免大屏下 tile 过宽（兼容原先 columns-[xxxpx] 的体验）
+  // 根据容器宽度计算列数：手机固定2列，电脑自适应
   useEffect(() => {
     const el = masonryRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
+    
+    if (!el || typeof ResizeObserver === 'undefined') {
+      // 如果没有 ResizeObserver，使用窗口宽度估算
+      const w = window.innerWidth || 1200;
+      const isMobile = w < 768;
+      const minCol = expanded ? 220 : 180;
+      const gap = isMobile ? 24 : 32;
+      const next = isMobile ? 2 : Math.max(3, Math.floor((w * 0.8 + gap) / (minCol + gap)));
+      setColCount(next);
+      return;
+    }
 
     const recompute = () => {
       const w = el.clientWidth || 0;
-      // 与原先 Tailwind columns-[180px]/[220px] 大致对齐
-      const minCol = expanded ? 220 : 180;
-      const gap = window.matchMedia && window.matchMedia('(min-width: 768px)').matches ? 14 : 12;
-      // base calculation
-      const base = Math.max(1, Math.floor((w + gap) / (minCol + gap)));
+      const isMobile = w < 768; // 768px 以下视为手机
+      const gap = isMobile ? 24 : 32;
+      
+      let next: number;
+      if (isMobile) {
+        // 手机端：固定2列
+        next = 2;
+      } else {
+        // 电脑端：自适应多列，最少3列
+        const minCol = expanded ? 220 : 180;
+        next = Math.max(3, Math.floor((w + gap) / (minCol + gap)));
+      }
 
-      // Hysteresis + mobile-friendly 2-col fallback:
-      // Some iOS/phone viewports end up with w slightly smaller than the threshold for 2 cols (e.g. 366px),
-      // which makes it "stuck" in 1-col. We allow 2-col when each column would still be >= 160px,
-      // and add hysteresis to avoid 1<->2 flapping while scrolling.
-      const colW2 = Math.floor((w - gap) / 2);
-      const next = (() => {
-        if (expanded) return base;
-        if (base >= 2) return base;
-        // base is 1
-        if (colW2 >= 160) return 2;
-        return 1;
-      })();
-
-      // 估算列宽：用于根据媒体比例估算高度（仅用于“后续追加”的分配，不会触发旧项换列）
+      // 估算列宽：用于根据媒体比例估算高度（仅用于"后续追加"的分配，不会触发旧项换列）
       const colW = next > 0 ? Math.max(1, Math.floor((w - gap * (next - 1)) / next)) : w;
       colWidthRef.current = colW;
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'run2',hypothesisId:'H1',location:'MediaTiles.tsx:recomputeCols',message:'recompute columns v2',data:{expanded,w,minCol,gap,base,colW2,next,colW,prevColCount:colCount},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-      setColCount((prev) => {
-        if (expanded) return prev === next ? prev : next;
-        // hysteresis to reduce flapping near the threshold
-        if (prev >= 2) {
-          // keep 2 cols unless it's really too narrow
-          return colW2 >= 150 ? 2 : 1;
-        }
-        return prev === next ? prev : next;
-      });
+      setColCount(next);
     };
 
+    // 立即计算一次
     recompute();
     const ro = new ResizeObserver(() => recompute());
     ro.observe(el);
     return () => ro.disconnect();
   }, [expanded]);
 
-  // 关键：只把“新增的 items”追加进列里，旧 tile 不换列 => 加载更多时不闪动
+  // 关键：只把"新增的 items"追加进列里，旧 tile 不换列 => 加载更多时不闪动
   useEffect(() => {
     const firstKey = items[0] ? keyOf(items[0]) : '';
     const prev = prevInfoRef.current;
@@ -210,11 +202,9 @@ export default function MediaTiles({
       // 过滤/刷新：首元素变化（通常意味着前缀不再相同）
       (prev.firstKey && firstKey !== prev.firstKey) ||
       // 列数变化：需要重新分配（避免列数变化后布局错乱）
-      cols.length !== Math.max(1, colCount);
-
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'run2',hypothesisId:'H2',location:'MediaTiles.tsx:itemsEffect',message:'items->layout decision',data:{itemsLen:items.length,prevCount:prev.count,prevFirstKey:prev.firstKey,firstKey,colCount,colsLen:cols.length,needHardReset,appendedLen:Math.max(0,items.length-prev.count)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+      cols.length !== Math.max(1, colCount) ||
+      // 从空列表变为有数据：必须触发分配
+      (prev.count === 0 && items.length > 0);
 
     if (needHardReset) {
       setCols(buildColsGreedy(items, colCount));
@@ -263,11 +253,11 @@ export default function MediaTiles({
     const skeletonCount = expanded ? 10 : 14;
     return (
       <div ref={rootRef}>
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-[14px]">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 masonry-gap">
           {Array.from({ length: skeletonCount }).map((_, i) => (
             <div
               key={`sk-${i}`}
-              className="rounded-[16px] border border-white/10 bg-black/20 overflow-hidden shadow-[0_18px_60px_rgba(0,0,0,.45)]"
+              className="border border-white/10 bg-black/20 overflow-hidden shadow-[0_18px_60px_rgba(0,0,0,.45)]"
             >
               <div className="h-[220px] md:h-[260px] bg-white/10 animate-pulse"></div>
               <div className="p-2">
@@ -283,14 +273,16 @@ export default function MediaTiles({
 
   return (
     <div ref={rootRef}>
-      <div ref={masonryRef} className="flex items-start gap-3 md:gap-[14px]">
+      <div ref={masonryRef} className="flex items-start masonry-gap">
         {cols.map((col, colIdx) => (
-          <div key={`col-${colIdx}`} className="flex-1 min-w-0 flex flex-col gap-3 md:gap-[14px]">
+          <div key={`col-${colIdx}`} className="flex-1 min-w-0 flex flex-col masonry-gap">
             {col.map((t) => {
               const isVideo = t.item.kind === 'video';
-              const label = isVideo ? '视频' : t.item.kind === 'image' ? '图片' : '文件';
-              const title = `${t.group.author || ''} ${t.group.theme || ''}`.trim() || t.item.filename;
-              const sub = `${t.group.timeText || ''}`.trim();
+              const groupType = t.group.groupType || (Array.isArray(t.group.types) ? t.group.types[0] : '') || '';
+              const isLive = groupType === '实况';
+              const badgeLabel = isLive ? '实况' : isVideo ? '视频' : t.item.kind === 'image' ? '图片' : '文件';
+              const badgeVariant = isLive ? 'live' : isVideo ? 'video' : t.item.kind === 'image' ? 'photo' : '';
+
               const tileKey = keyOf(t);
 
               const updateMeasuredRatio = (ratio: number) => {
@@ -323,18 +315,14 @@ export default function MediaTiles({
                         onOpen(t.groupIdx, t.itemIdx);
                       }
                     }}
-                    className="relative w-full overflow-hidden rounded-[16px] border border-white/10 bg-black/20 shadow-[0_18px_60px_rgba(0,0,0,.45)]"
+                    className="relative w-full overflow-hidden border border-white/10 bg-black/20 shadow-[0_18px_60px_rgba(0,0,0,.45)]"
                   >
-                    {/* 竖屏优先 */}
+                    {/* 图片自然高度撑开，只限制宽度 */}
                     <div className="relative w-full bg-black/25">
                       {isVideo || t.item.kind === 'image' ? (
-                        <LazyImage
-                          wrapperClassName="w-full overflow-hidden"
-                          wrapperStyle={{
-                            // 关键：先用估算高度占位，避免图片加载完成后把下面内容“顶来顶去”
-                            height: Math.max(180, Math.round(estimateHeight(t))),
-                          }}
-                          className="absolute inset-0 w-full h-full object-cover"
+                        <BaseImage
+                          wrapperClassName="w-full"
+                          className="w-full block"
                           src={escHtml(t.item.thumbUrl ?? t.item.url)}
                           alt=""
                           onLoad={(img) => {
@@ -345,33 +333,19 @@ export default function MediaTiles({
                         />
                       ) : (
                         <div className="w-full min-h-[220px] grid place-items-center text-sm text-white/75">
-                          {escHtml(label)}
+                          {escHtml(badgeLabel)}
                         </div>
                       )}
 
-                      {/* 文字层：避免“叠在一起”，统一放入 overlay，标题两行省略，时间一行 */}
-                      <div className="pointer-events-none absolute inset-0">
-                        <div className="absolute top-2 left-2 flex items-center gap-2">
-                          <div className="text-xs font-mono text-white/85 bg-white/10 border border-white/15 rounded-full px-2 py-1 backdrop-blur">
-                            {escHtml(label)}
+                      {/* 叠加层：类型角标（用自定义 CSS 做定位/层级，避免 Tailwind 未生成时错位） */}
+                      <div className="tileOverlay" aria-hidden="true">
+                        <div className="tileOverlayTopLeft">
+                          <div className={`tileTypeBadge ${badgeVariant}`} aria-label={escHtml(badgeLabel)}>
+                            <span className="tileTypeBadgeIcon">{isLive ? '●' : isVideo ? '▶' : '⧉'}</span>
+                            {/* <span className="tileTypeBadgeText">{escHtml(badgeLabel)}</span> */}
                           </div>
                         </div>
-                        {isVideo && (
-                          <div className="absolute top-2 right-2 grid place-items-center w-8 h-8 rounded-full bg-black/35 border border-white/15 text-white/90 text-sm backdrop-blur">
-                            ▶
-                          </div>
-                        )}
-
-                        <div className="absolute left-0 right-0 bottom-0 p-2 bg-gradient-to-t from-black/75 via-black/35 to-transparent">
-                          <div className="text-[13px] font-extrabold text-white/92 leading-snug overflow-hidden [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]">
-                            {escHtml(title)}
-                          </div>
-                          {sub && (
-                            <div className="mt-1 text-[12px] font-mono text-white/70 truncate">
-                              {escHtml(sub)}
-                            </div>
-                          )}
-                        </div>
+                        {/* {isVideo && <div className="tileOverlayTopRight">▶</div>} */}
                       </div>
                     </div>
                   </div>

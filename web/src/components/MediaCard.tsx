@@ -1,6 +1,6 @@
 import { MediaGroup } from '../api';
 import { escHtml } from '../utils';
-import LazyImage from './LazyImage';
+import BaseImage from './BaseImage';
 
 interface MediaCardProps {
   group: MediaGroup;
@@ -45,7 +45,6 @@ export default function MediaCard({
   const type = typeLabel(group);
   const tags = typeTags(group);
   const items = Array.isArray(group.items) ? group.items : [];
-  const previewCount = Math.min(items.length, expanded ? 8 : 4);
 
   const handleThumbClick = (itemIdx: number) => {
     onThumbClick(groupIdx, itemIdx);
@@ -90,7 +89,7 @@ export default function MediaCard({
         </div>
 
         <div className="thumbs" data-group={groupIdx}>
-          {items.slice(0, previewCount).map((it, idx) => {
+          {items.map((it, idx) => {
             const isVideo = it.kind === 'video';
             const badgeText = it.seq != null ? `_${it.seq}` : isVideo ? 'mp4' : 'img';
 
@@ -106,9 +105,9 @@ export default function MediaCard({
                 onClick={() => handleThumbClick(idx)}
                 onKeyDown={(e) => handleThumbKeyDown(e, idx)}
               >
-                <LazyImage
-                  wrapperClassName="w-full h-full"
-                  className="w-full h-full object-cover"
+                <BaseImage
+                  wrapperClassName="w-full"
+                  className="w-full"
                   src={escHtml(it.thumbUrl ?? it.url)}
                   alt=""
                 />
@@ -125,35 +124,6 @@ export default function MediaCard({
               </div>
             );
           })}
-          {items.length > previewCount && (
-            <div
-              className="thumb"
-              role="button"
-              tabIndex={0}
-              data-g={groupIdx}
-              data-i={previewCount}
-              title="查看更多"
-              onClick={() => handleThumbClick(previewCount)}
-              onKeyDown={(e) => handleThumbKeyDown(e, previewCount)}
-            >
-              <div
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  display: 'grid',
-                  placeItems: 'center',
-                  background: 'rgba(0,0,0,.25)',
-                }}
-              >
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontWeight: 800, fontSize: '20px' }}>+{items.length - previewCount}</div>
-                  <div style={{ color: 'rgba(255,255,255,.66)', fontSize: '12px', marginTop: '4px' }}>
-                    更多
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </article>
