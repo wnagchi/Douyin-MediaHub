@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Masonry, useInfiniteLoader } from 'masonic';
+import { Masonry } from 'antd';
 import type { MediaGroup, MediaItem } from '../api';
 import { escHtml } from '../utils';
 import BaseImage from './BaseImage';
@@ -32,10 +32,8 @@ export default function MediaTiles({
   onLoadMore,
   onOpen,
 }: MediaTilesProps) {
-  const loadingMoreRef = useRef<boolean>(loadingMore);
-  const onLoadMoreRef = useRef<() => void>(onLoadMore);
-
   const containerRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number>(() => {
     try {
       return typeof window !== 'undefined' ? window.innerWidth : 0;
@@ -44,31 +42,7 @@ export default function MediaTiles({
     }
   });
 
-  // 保持回调最新，但 Observer 只创建一次（避免 loadingMore 变化触发 disconnect 导致 Observer 永久失效）
-  useEffect(() => {
-    loadingMoreRef.current = loadingMore;
-  }, [loadingMore]);
-  useEffect(() => {
-    onLoadMoreRef.current = onLoadMore;
-  }, [onLoadMore]);
-
-  const loadMoreItems = useCallback(
-    async (_startIndex: number, _stopIndex: number, _currentItems: TileItem[]) => {
-      if (!hasMore) return;
-      if (loadingMoreRef.current) return;
-      onLoadMoreRef.current();
-    },
-    [hasMore]
-  );
-  const maybeLoadMore = useInfiniteLoader<TileItem, typeof loadMoreItems>(loadMoreItems, {
-    isItemLoaded: (index, current) => Boolean(current[index]),
-    // hasMore=false 时把 totalItems 限定为当前长度，避免继续触发
-    totalItems: hasMore ? 9e9 : items.length,
-    threshold: 10,
-    minimumBatchSize: 16,
-  });
-
-  // 监听容器宽度：用于计算列数/列宽（masonic 的 columnCount + columnWidth）
+  // 监听容器宽度：用于计算列数
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -82,20 +56,36 @@ export default function MediaTiles({
     return () => ro.disconnect();
   }, []);
 
+  // 无限滚动：监听底部元素
+  useEffect(() => {
+    if (!hasMore || loadingMore || !sentinelRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !loadingMore) {
+          onLoadMore();
+        }
+      },
+      { rootMargin: '200px' }
+    );
+
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, loadingMore, onLoadMore]);
+
   const layout = useMemo(() => {
     const w = containerWidth || 0;
     const isMobile = w > 0 ? w < 768 : true;
-    const gap = isMobile ? 12 : 16; // 对齐 app.css 的 masonry-gap
+    const gap = isMobile ? 12 : 16;
     const minCol = expanded ? 220 : 180;
     const columnCount = isMobile ? 2 : Math.max(3, Math.floor((Math.max(w, 1) + gap) / (minCol + gap)));
-    const columnWidth = w > 0 ? Math.max(1, Math.floor((w - gap * (columnCount - 1)) / columnCount)) : minCol;
-    return { isMobile, gap, minCol, columnCount, columnWidth };
+    return { isMobile, gap, minCol, columnCount };
   }, [containerWidth, expanded]);
 
   const itemKey = (t: TileItem) => `${t.groupIdx}-${t.itemIdx}`;
 
   const renderTile = useCallback(
-    ({ data }: { data: TileItem; index: number; width: number }) => {
+    (data: TileItem) => {
       const isVideo = data.item.kind === 'video';
       const groupType = data.group.groupType || (Array.isArray(data.group.types) ? data.group.types[0] : '') || '';
       const isLive = groupType === '实况';
@@ -103,38 +93,33 @@ export default function MediaTiles({
       const badgeVariant = isLive ? 'live' : isVideo ? 'video' : data.item.kind === 'image' ? 'photo' : '';
 
       return (
-        <div className="w-full">
-          <div
-            role="button"
-            tabIndex={0}
-            title={escHtml(data.item.filename)}
-            onClick={() => onOpen(data.groupIdx, data.itemIdx)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onOpen(data.groupIdx, data.itemIdx);
-              }
-            }}
-            className="relative w-full overflow-hidden border border-white/10 bg-black/20 shadow-[0_18px_60px_rgba(0,0,0,.45)]"
-          >
-            <div className="relative w-full bg-black/25">
-              {isVideo || data.item.kind === 'image' ? (
-                <BaseImage
-                  wrapperClassName="w-full"
-                  className="w-full block"
-                  src={escHtml(data.item.thumbUrl ?? data.item.url)}
-                  alt=""
-                />
-              ) : (
-                <div className="w-full min-h-[220px] grid place-items-center text-sm text-white/75">{escHtml(badgeLabel)}</div>
-              )}
-
-              <div className="tileOverlay" aria-hidden="true">
-                <div className="tileOverlayTopLeft">
-                  <div className={`tileTypeBadge ${badgeVariant}`} aria-label={escHtml(badgeLabel)}>
-                    <span className="tileTypeBadgeIcon">{isLive ? '●' : isVideo ? '▶' : '⧉'}</span>
-                  </div>
-                </div>
+        <div
+          role="button"
+          tabIndex={0}
+          title={escHtml(data.item.filename)}
+          onClick={() => onOpen(data.groupIdx, data.itemIdx)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onOpen(data.groupIdx, data.itemIdx);
+            }
+          }}
+          className="relative w-full overflow-hidden border border-white/10 bg-black/20 shadow-[0_18px_60px_rgba(0,0,0,.45)]"
+        >
+          {isVideo || data.item.kind === 'image' ? (
+            <BaseImage
+              wrapperClassName="w-full"
+              className="w-full block"
+              src={escHtml(data.item.thumbUrl ?? data.item.url)}
+              alt=""
+            />
+          ) : (
+            <div className="w-full min-h-[220px] grid place-items-center text-sm text-white/75">{escHtml(badgeLabel)}</div>
+          )}
+          <div className="tileOverlay" aria-hidden="true">
+            <div className="tileOverlayTopLeft">
+              <div className={`tileTypeBadge ${badgeVariant}`} aria-label={escHtml(badgeLabel)}>
+                <span className="tileTypeBadgeIcon">{isLive ? '●' : isVideo ? '▶' : '⧉'}</span>
               </div>
             </div>
           </div>
@@ -169,16 +154,18 @@ export default function MediaTiles({
   return (
     <div ref={containerRef}>
       <Masonry
-        items={items}
-        render={renderTile as any}
-        itemKey={itemKey}
-        columnCount={layout.columnCount}
-        columnWidth={layout.columnWidth}
-        columnGutter={layout.gap}
-        overscanBy={layout.isMobile ? 4 : 2}
-        onRender={maybeLoadMore}
+        // 参考文档：https://ant.design/components/masonry-cn
+        columns={{ xs: 2, sm: 3, md: layout.columnCount }}
+        gutter={{ xs: 12, md: 16 }}
+        fresh
+        items={items.map((it) => ({
+          key: itemKey(it),
+          data: it,
+          children: renderTile(it),
+        }))}
       />
 
+      <div ref={sentinelRef} style={{ height: '1px', gridColumn: '1 / -1' }} aria-hidden="true" />
       <div className="listFooter">
         {hasMore ? (
           <button id="loadMoreTiles" className="btn" onClick={onLoadMore} disabled={loadingMore}>

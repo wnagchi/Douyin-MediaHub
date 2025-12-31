@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Image } from 'antd';
 
 interface LazyImageProps {
   src: string;
@@ -19,7 +20,7 @@ export default function LazyImage({
   rootMargin = '240px 0px',
   onLoad,
 }: LazyImageProps) {
-  const imgRef = useRef<HTMLImageElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [shouldLoad, setShouldLoad] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -30,7 +31,7 @@ export default function LazyImage({
   }, [src]);
 
   useEffect(() => {
-    const el = imgRef.current;
+    const el = wrapperRef.current;
     if (!el) return;
     if (shouldLoad) return;
     if (typeof IntersectionObserver === 'undefined') {
@@ -55,19 +56,22 @@ export default function LazyImage({
   }, [rootMargin, shouldLoad]);
 
   return (
-    <div className={`relative ${wrapperClassName || ''}`} style={wrapperStyle}>
+    <div ref={wrapperRef} className={`relative ${wrapperClassName || ''}`} style={wrapperStyle}>
       {!loaded && (
         <div className="absolute inset-0 bg-white/10 animate-pulse" aria-hidden="true"></div>
       )}
-      <img
-        ref={imgRef}
-        loading="lazy"
-        {...(shouldLoad ? { src } : {})}
+      <Image
+        preview={false}
         alt={alt}
-        className={`${className || ''} transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+        loading="lazy"
+        src={shouldLoad ? src : undefined}
+        className={`${loaded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-200`}
+        classNames={{ image: className || '' }}
+        styles={{ image: { width: '100%', height: 'auto' } }}
         onLoad={(e) => {
+          const img = (e?.currentTarget as unknown) as HTMLImageElement;
           setLoaded(true);
-          onLoad?.(e.currentTarget);
+          if (img) onLoad?.(img);
         }}
         onError={() => {
           // stop skeleton; keep element hidden to avoid broken-icon flicker

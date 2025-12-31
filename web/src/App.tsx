@@ -153,26 +153,29 @@ function App() {
         ...(reset ? { renderLimit: GROUP_BATCH, groups: [] } : {}),
       }));
 
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/16b8df7c-fc7a-42ad-880f-3b84c1e70f04', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'H1',
-          location: 'App.tsx:120',
-          message: 'loadResources start',
-          data: {
-            reset,
-            nextPage,
-            filters,
-            params,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
+      // Debug logging disabled by default (enable via localStorage: enableAgentLog=true)
+      if (typeof window !== 'undefined') {
+        try {
+          const enableLog = localStorage.getItem('enableAgentLog') === 'true';
+          if (enableLog && import.meta.env.DEV) {
+            fetch('http://127.0.0.1:7242/ingest/16b8df7c-fc7a-42ad-880f-3b84c1e70f04', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                sessionId: 'debug-session',
+                runId: 'run1',
+                hypothesisId: 'H1',
+                location: 'App.tsx:120',
+                message: 'loadResources start',
+                data: { reset, nextPage, filters, params },
+                timestamp: Date.now(),
+              }),
+            }).catch(() => {});
+          }
+        } catch {
+          // ignore localStorage errors
+        }
+      }
 
       try {
         const j = await fetchResources(params);
@@ -240,25 +243,29 @@ function App() {
           };
         });
 
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/16b8df7c-fc7a-42ad-880f-3b84c1e70f04', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId: 'debug-session',
-            runId: 'run1',
-            hypothesisId: 'H2',
-            location: 'App.tsx:179',
-            message: 'loadResources success',
-            data: {
-              reset,
-              returned: j.groups?.length || 0,
-              pagination: j.pagination,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
+        // Debug logging disabled by default
+        if (typeof window !== 'undefined') {
+          try {
+            const enableLog = localStorage.getItem('enableAgentLog') === 'true';
+            if (enableLog && import.meta.env.DEV) {
+              fetch('http://127.0.0.1:7242/ingest/16b8df7c-fc7a-42ad-880f-3b84c1e70f04', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  sessionId: 'debug-session',
+                  runId: 'run1',
+                  hypothesisId: 'H2',
+                  location: 'App.tsx:179',
+                  message: 'loadResources success',
+                  data: { reset, returned: j.groups?.length || 0, pagination: j.pagination },
+                  timestamp: Date.now(),
+                }),
+              }).catch(() => {});
+            }
+          } catch {
+            // ignore localStorage errors
+          }
+        }
       } catch (err) {
         setState((prev) => ({
           ...prev,
@@ -296,27 +303,35 @@ function App() {
   };
 
   const handleLoadMore = () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/16b8df7c-fc7a-42ad-880f-3b84c1e70f04', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: 'debug-session',
-        runId: 'run1',
-        hypothesisId: 'H3',
-        location: 'App.tsx:210',
-        message: 'handleLoadMore invoked',
-        data: {
-          loading: state.loading,
-          loadingMore: state.loadingMore,
-          renderLimit: state.renderLimit,
-          groupsLength: state.groups.length,
-          pagination: state.pagination,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
+    // Debug logging disabled by default
+    if (typeof window !== 'undefined') {
+      try {
+        const enableLog = localStorage.getItem('enableAgentLog') === 'true';
+        if (enableLog && import.meta.env.DEV) {
+          fetch('http://127.0.0.1:7242/ingest/16b8df7c-fc7a-42ad-880f-3b84c1e70f04', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: 'debug-session',
+              runId: 'run1',
+              hypothesisId: 'H3',
+              location: 'App.tsx:210',
+              message: 'handleLoadMore invoked',
+              data: {
+                loading: state.loading,
+                loadingMore: state.loadingMore,
+                renderLimit: state.renderLimit,
+                groupsLength: state.groups.length,
+                pagination: state.pagination,
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+        }
+      } catch {
+        // ignore localStorage errors
+      }
+    }
 
     if (state.loadingMore || state.loading) return;
     const nextLimit = Math.min(state.renderLimit + GROUP_BATCH, state.groups.length);
@@ -330,15 +345,18 @@ function App() {
   };
 
   const handleOpenModal = (groupIdx: number, itemIdx: number, feedMode = false) => {
-    setState((prev) => ({
-      ...prev,
-      modal: {
-        open: true,
-        groupIdx,
-        itemIdx: feedMode ? getPreferredItemIndex(prev.groups[groupIdx]) : itemIdx,
-      },
-      feedMode,
-    }));
+    setState((prev) => {
+      const group = prev.groups[groupIdx];
+      return {
+        ...prev,
+        modal: {
+          open: true,
+          groupIdx,
+          itemIdx: feedMode ? getPreferredItemIndex(group) : itemIdx,
+        },
+        feedMode,
+      };
+    });
   };
   const handleCloseModal = () => {
     setState((prev) => ({
@@ -363,6 +381,18 @@ function App() {
       const items = group.items || [];
       const newIdx = Math.max(0, Math.min(prev.modal.itemIdx + delta, items.length - 1));
       return { ...prev, modal: { ...prev.modal, itemIdx: newIdx } };
+    });
+  };
+
+  const handleModalSetItemIdx = (nextIdx: number) => {
+    setState((prev) => {
+      if (!prev.modal.open) return prev;
+      const group = prev.groups[prev.modal.groupIdx];
+      if (!group) return prev;
+      const items = group.items || [];
+      const clamped = Math.max(0, Math.min(nextIdx, items.length - 1));
+      if (clamped === prev.modal.itemIdx) return prev;
+      return { ...prev, modal: { ...prev.modal, itemIdx: clamped } };
     });
   };
 
@@ -506,6 +536,7 @@ function App() {
           feedMode={state.feedMode}
           onClose={handleCloseModal}
           onStep={handleModalStep}
+          onSetItemIdx={handleModalSetItemIdx}
           onGroupStep={handleGroupStep}
           onFeedModeChange={handleFeedModeChange}
         />

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Image } from 'antd';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Mousewheel, Keyboard } from 'swiper/modules';
 import type { Swiper as SwiperClass } from 'swiper';
@@ -17,6 +18,7 @@ interface PreviewModalProps {
   feedMode: boolean;
   onClose: () => void;
   onStep: (delta: number) => void;
+  onSetItemIdx: (nextIdx: number) => void;
   onGroupStep: (delta: number) => void;
   onFeedModeChange?: (feedMode: boolean) => void;
 }
@@ -28,6 +30,7 @@ export default function PreviewModal({
   feedMode,
   onClose,
   onStep,
+  onSetItemIdx,
   onGroupStep,
   onFeedModeChange,
 }: PreviewModalProps) {
@@ -36,12 +39,15 @@ export default function PreviewModal({
   const [showInspectInfo, setShowInspectInfo] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true); // 默认静音（feedMode 默认静音）
+  const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
+  const [imagePreviewCurrent, setImagePreviewCurrent] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const swiperRef = useRef<SwiperClass | null>(null);
   const lastSlideRef = useRef(groupIdx);
   const lastItemIdxRef = useRef(itemIdx);
   const modalRef = useRef<HTMLDivElement>(null);
   const bodyScrollYRef = useRef<number>(0);
+  const thumbStripRef = useRef<HTMLDivElement>(null);
 
   const group = groups[groupIdx];
   if (!group) {
@@ -62,6 +68,17 @@ export default function PreviewModal({
     ''
   );
   const hint = `${clampedIdx + 1}/${items.length}  |  ${item.filename}`;
+  const canThumbStrip = !feedMode && items.length > 1;
+
+  // 仅图片参与 antd 的预览组：预览层可左右切换其它图片，并反向联动到主视图
+  const imageEntries = items
+    .map((it, idx) => ({ it, idx }))
+    .filter(({ it }) => it?.kind === 'image' && typeof it.url === 'string' && it.url.length > 0);
+  const imageUrls = imageEntries.map(({ it }) => it.url);
+  const currentImageIndexInGroup = (() => {
+    const found = imageEntries.findIndex((x) => x.idx === clampedIdx);
+    return found >= 0 ? found : 0;
+  })();
 
   // 滚动锁定：弹层打开时锁住 body 滚动
   useEffect(() => {
@@ -205,6 +222,8 @@ export default function PreviewModal({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // antd Image 预览打开时，优先让预览层处理按键（尤其是 Esc）
+      if (imagePreviewOpen) return;
       if (e.key === 'Escape') {
         onClose();
       } else if (e.key === 'ArrowLeft') {
@@ -216,7 +235,22 @@ export default function PreviewModal({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, onStep]);
+  }, [imagePreviewOpen, onClose, onStep]);
+
+
+  // 缩略图条自动跟随：保证当前项优先处于可见范围（尽量居中）
+  useEffect(() => {
+    if (!canThumbStrip) return;
+    const strip = thumbStripRef.current;
+    if (!strip) return;
+    const el = strip.querySelector<HTMLElement>(`[data-thumb-idx="${clampedIdx}"]`);
+    if (!el) return;
+    try {
+      el.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    } catch {
+      // ignore
+    }
+  }, [canThumbStrip, clampedIdx]);
 
   useEffect(() => {
     setWarnVisible(false);
@@ -354,11 +388,14 @@ export default function PreviewModal({
         // 非激活 slide：使用 thumbUrl 图片代替视频，减少媒体开销
         if (media.thumbUrl) {
           mediaElement = (
-            <img
+            <Image
               key={`preview-${groupIdx}-${currentIdx}`}
               src={media.thumbUrl}
               alt={media.filename}
+              preview={false}
               className="feedPreviewVideo"
+              classNames={{ image: 'feedPreviewVideoImg' }}
+              styles={{ image: { width: '100%', height: '100%', objectFit: 'contain' } }}
             />
           );
         } else {
@@ -371,7 +408,24 @@ export default function PreviewModal({
         }
       }
     } else if (media.kind === 'image') {
-      mediaElement = <img src={media.url} alt={media.filename} />;
+      mediaElement = (
+        <Image
+          src={media.url}
+          alt={media.filename}
+          // 预览使用 PreviewGroup 的 items（见下方），在预览层内可左右切换其它图片并联动主视图
+          preview={imageUrls.length > 1 ? false : {
+            zIndex: 2000,
+            mask: '点击预览',
+            onOpenChange: (open) => setImagePreviewOpen(open),
+          }}
+          className="modalImage"
+          classNames={{ image: 'modalImageImg' }}
+          styles={{
+            root: { width: '100%', display: 'grid', placeItems: 'center' },
+            image: { maxWidth: '100%', maxHeight: 'calc(100vh - 220px)', objectFit: 'contain' },
+          }}
+        />
+      );
     } else {
       mediaElement = (
         <a href={media.url} className="btn">
@@ -445,6 +499,12 @@ export default function PreviewModal({
     );
   };
 
+  const renderAlbumBody = () => {
+    // 不使用 Swiper，直接渲染当前索引的媒体项
+    // 通过键盘、按钮和缩略图切换
+    return renderMedia(group, clampedIdx, true);
+  };
+
   const feedSwiper = (
     <Swiper
       direction="vertical"
@@ -508,7 +568,8 @@ export default function PreviewModal({
                 {feedMode ? '📱' : '🎬'}
               </button>
             )}
-            {!feedMode && (
+            {/* 顶部左右按钮降级：仍保留桌面端兜底，但不作为主操作 */}
+            {!feedMode && !canThumbStrip && (
               <>
                 <button id="prev" className="iconBtn" title="上一项 (←)" onClick={() => onStep(-1)}>
                   ←
@@ -523,16 +584,91 @@ export default function PreviewModal({
             </button>
           </div>
         </div>
-        <div className="modalBody">{feedMode ? feedSwiper : renderMedia(group, clampedIdx, true)}</div>
+        <div className="modalBody">
+          {!feedMode && imageUrls.length > 1 ? (
+            <Image.PreviewGroup
+              // docs: https://ant.design/components/image-cn#previewtype
+              items={imageUrls}
+              preview={{
+                zIndex: 2000,
+                open: imagePreviewOpen,
+                current: imagePreviewCurrent,
+                onOpenChange: (open, info) => {
+                  setImagePreviewOpen(open);
+                  if (info && typeof info.current === 'number') {
+                    setImagePreviewCurrent(info.current);
+                    const mapped = imageEntries[info.current]?.idx;
+                    if (typeof mapped === 'number') onSetItemIdx(mapped);
+                  }
+                },
+                onChange: (current) => {
+                  setImagePreviewCurrent(current);
+                  const mapped = imageEntries[current]?.idx;
+                  if (typeof mapped === 'number') onSetItemIdx(mapped);
+                },
+              }}
+            >
+              {/* 主图：点击打开预览，并与缩略图条联动 */}
+              <div className="modalBodyInner" onClick={() => {
+                // 点击主图打开预览：同步 current
+                if (items[clampedIdx]?.kind !== 'image') return;
+                if (!imageUrls.length) return;
+                setImagePreviewCurrent(currentImageIndexInGroup);
+                setImagePreviewOpen(true);
+              }}>
+                {renderAlbumBody()}
+              </div>
+            </Image.PreviewGroup>
+          ) : (
+            // 单张图片或非图集：保持原行为（图片单独预览 / 视频播放）
+            (feedMode ? feedSwiper : renderMedia(group, clampedIdx, true))
+          )}
+        </div>
         {!feedMode && (
           <div className="modalBottom">
-            <div className="modalHint">
-              {hint}
-              {warnExtra && `  |  ${escHtml(warnExtra)}`}
+            {canThumbStrip && (
+              <div ref={thumbStripRef} className="thumbStrip" aria-label="图集缩略图">
+                {items.map((it, idx) => {
+                  const active = idx === clampedIdx;
+                  const src = it.thumbUrl ?? it.url;
+                  const isVideo = it.kind === 'video';
+                  const isImage = it.kind === 'image';
+                  return (
+                    <button
+                      key={`${idx}-${it.filename}`}
+                      type="button"
+                      className={`thumbPill ${active ? 'active' : ''}`}
+                      title={it.filename}
+                      data-thumb-idx={idx}
+                      onClick={() => onSetItemIdx(idx)}
+                    >
+                      {(isVideo || isImage) ? (
+                        <Image
+                          src={src}
+                          alt={it.filename}
+                          preview={false}
+                          className="thumbPillImg"
+                          classNames={{ image: 'thumbPillImgEl' }}
+                          styles={{ image: { width: '100%', height: '100%', objectFit: 'cover' } }}
+                        />
+                      ) : (
+                        <div className="thumbPillOther">文件</div>
+                      )}
+                      {isVideo && <span className="thumbPillBadge">▶</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="modalBottomRow">
+              <div className="modalHint">
+                {hint}
+                {warnExtra && `  |  ${escHtml(warnExtra)}`}
+              </div>
+              <a id="download" className="btn ghost" href={item.url} download={item.filename}>
+                下载
+              </a>
             </div>
-            <a id="download" className="btn ghost" href={item.url} download={item.filename}>
-              下载
-            </a>
           </div>
         )}
       </div>

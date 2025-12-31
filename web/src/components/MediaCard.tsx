@@ -1,6 +1,9 @@
 import { MediaGroup } from '../api';
 import { escHtml } from '../utils';
 import BaseImage from './BaseImage';
+import { Card } from 'antd';
+
+const { Meta } = Card;
 
 interface MediaCardProps {
   group: MediaGroup;
@@ -37,12 +40,11 @@ function typeTags(g: MediaGroup): string[] {
 export default function MediaCard({
   group,
   groupIdx,
-  expanded = false,
+  expanded: _expanded = false,
   wrapperClassName,
   onThumbClick,
 }: MediaCardProps) {
   const title = fmtGroupTitle(group);
-  const type = typeLabel(group);
   const tags = typeTags(group);
   const items = Array.isArray(group.items) ? group.items : [];
   const first = items[0] || null;
@@ -59,65 +61,136 @@ export default function MediaCard({
     }
   };
 
-  return (
-    <article className={`card ${wrapperClassName || ''}`} data-type={escHtml(type)}>
-      <div className="cardInner">
-        <div className="cardTop">
-          <div>
-            <div className="cardTitle">{escHtml(title)}</div>
-            <div className="cardSub">
-              {group.author && (
-                <span className="pill">
-                  <strong>发布人</strong> {escHtml(group.author)}
-                </span>
-              )}
-              {group.timeText && (
-                <span className="pill">
-                  <strong>时间</strong> {escHtml(group.timeText)}
-                </span>
-              )}
-              <span className="pill">
-                <strong>条目</strong> {items.length}
-              </span>
-            </div>
-          </div>
-          <div className="tagRow" aria-label="类型标签">
-            {tags.map((t) => (
-              <span key={t} className={`tag ${typeClass(t)}`}>
-                {escHtml(t)}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <div className="albumCoverWrap" data-group={groupIdx}>
-          {first ? (
-            <div
-              className="albumCover"
-              role="button"
-              tabIndex={0}
-              data-g={groupIdx}
-              data-i={0}
-              title={escHtml(first.filename)}
-              onClick={() => handleThumbClick(0)}
-              onKeyDown={(e) => handleThumbKeyDown(e, 0)}
-            >
-              <BaseImage
-                wrapperClassName="albumCoverImg"
-                className="albumCoverImgEl"
-                src={escHtml(first.thumbUrl ?? first.url)}
-                alt=""
-                imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-              <div className="albumCoverOverlay" aria-hidden="true">
-                {firstIsVideo && <div className="albumCoverPlay">▶</div>}
-              </div>
-            </div>
-          ) : (
-            <div className="albumCover albumCoverEmpty">暂无内容</div>
-          )}
-        </div>
+  // 构建描述信息
+  const descriptionParts: string[] = [];
+  if (group.author) {
+    descriptionParts.push(`发布人: ${group.author}`);
+  }
+  if (group.timeText) {
+    descriptionParts.push(`时间: ${group.timeText}`);
+  }
+  descriptionParts.push(`条目: ${items.length}`);
+  
+  const description = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.65)' }}>
+        {descriptionParts.join(' | ')}
       </div>
-    </article>
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+        {tags.map((t) => (
+          <span 
+            key={t} 
+            style={{
+              display: 'inline-block',
+              padding: '2px 8px',
+              fontSize: '11px',
+              borderRadius: '4px',
+              backgroundColor: typeClass(t) === 'video' ? 'rgba(59, 130, 246, 0.2)' :
+                               typeClass(t) === 'photo' ? 'rgba(236, 72, 153, 0.2)' :
+                               typeClass(t) === 'live' ? 'rgba(34, 197, 94, 0.2)' :
+                               typeClass(t) === 'mix' ? 'rgba(168, 85, 247, 0.2)' :
+                               'rgba(156, 163, 175, 0.2)',
+              color: 'rgba(255,255,255,0.85)',
+            }}
+          >
+            {t}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <Card
+      hoverable
+      className={wrapperClassName || ''}
+      style={{ 
+        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        borderRadius: '16px',
+        overflow: 'hidden',
+      }}
+      styles={{
+        body: {
+          padding: '12px',
+          backgroundColor: 'transparent',
+        },
+      }}
+      cover={
+        first ? (
+          <div
+            style={{
+              position: 'relative',
+              width: '100%',
+              height: '220px',
+              cursor: 'pointer',
+              overflow: 'hidden',
+            }}
+            role="button"
+            tabIndex={0}
+            title={escHtml(first.filename)}
+            onClick={() => handleThumbClick(0)}
+            onKeyDown={(e) => handleThumbKeyDown(e, 0)}
+          >
+            <BaseImage
+              wrapperClassName=""
+              className=""
+              src={escHtml(first.thumbUrl ?? first.url)}
+              alt={title}
+              imgStyle={{ 
+                width: '100%', 
+                height: '100%', 
+                objectFit: 'cover',
+              }}
+            />
+            {firstIsVideo && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '50%',
+                  backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '24px',
+                  color: 'white',
+                  pointerEvents: 'none',
+                }}
+              >
+                ▶
+              </div>
+            )}
+          </div>
+        ) : (
+          <div
+            style={{
+              width: '100%',
+              height: '220px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+              color: 'rgba(255, 255, 255, 0.3)',
+            }}
+          >
+            暂无内容
+          </div>
+        )
+      }
+    >
+      <Meta 
+        title={
+          <div style={{ color: 'rgba(255, 255, 255, 0.92)', fontSize: '14px', fontWeight: 600 }}>
+            {title}
+          </div>
+        }
+        description={description}
+      />
+    </Card>
   );
 }
