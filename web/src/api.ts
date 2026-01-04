@@ -68,6 +68,19 @@ export interface InspectResponse {
   };
 }
 
+export interface DeleteItemsRequestItem {
+  dirId: string;
+  filename: string;
+}
+
+export interface DeleteItemsResponse {
+  ok: boolean;
+  error?: string;
+  deleted?: number;
+  failed?: number;
+  results?: Array<{ ok: boolean; dirId: string; filename: string; error?: string; deleted?: boolean; skipped?: string }>;
+}
+
 async function asJson<T>(resp: Response): Promise<T> {
   return resp.json();
 }
@@ -115,4 +128,13 @@ export async function inspectMedia({ dirId, filename }: { dirId: string; filenam
     { cache: 'no-store' }
   );
   return asJson<InspectResponse>(r);
+}
+
+export async function deleteMediaItems(items: DeleteItemsRequestItem[]): Promise<DeleteItemsResponse> {
+  const r = await fetch('/api/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  return asJson<DeleteItemsResponse>(r);
 }

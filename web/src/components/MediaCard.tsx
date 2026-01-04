@@ -126,6 +126,7 @@ export default function MediaCard({
               cursor: 'pointer',
               overflow: 'hidden',
             }}
+            className='!flex items-center justify-center'
             role="button"
             tabIndex={0}
             title={escHtml(first.filename)}

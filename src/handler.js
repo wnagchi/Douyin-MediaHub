@@ -1,4 +1,5 @@
 const path = require("path");
+const fsp = require("fs/promises");
 const { URL } = require("url");
 
 const { send, sendJson } = require("./http/respond");
@@ -7,6 +8,25 @@ const { inspectMp4 } = require("./media");
 const { dirExists } = require("./utils/fs");
 const { createThumbGenerator, ensureThumbForImage } = require("./thumbs");
 const { createVideoThumbGenerator, ensureVideoThumb } = require("./videoThumbs");
+
+async function readJsonBody(req, { limitBytes = 256 * 1024 } = {}) {
+  const chunks = [];
+  let size = 0;
+  await new Promise((resolve, reject) => {
+    req.on("data", (c) => {
+      size += c.length;
+      if (size > limitBytes) {
+        reject(new Error("Body too large"));
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on("end", resolve);
+    req.on("error", reject);
+  });
+  const raw = Buffer.concat(chunks).toString("utf8");
+  return raw ? JSON.parse(raw) : {};
+}
 
 function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
   const thumbGenerator = createThumbGenerator({ rootDir });
@@ -179,6 +199,92 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
         return sendJson(res, 200, { ok: true, name, dirId: dir.id, info });
       } catch (e) {
         return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
+      }
+    }
+
+    if (req.method === "POST" && pathname === "/api/delete") {
+      try {
+        const j = await readJsonBody(req, { limitBytes: 1024 * 1024 });
+        const items = Array.isArray(j?.items) ? j.items : [];
+        if (!items.length) return sendJson(res, 400, { ok: false, error: "items 不能为空" });
+        if (items.length > 2000) return sendJson(res, 400, { ok: false, error: "items 过多" });
+
+        const dirs = mediaStore.getMediaDirs();
+        const results = [];
+        let deleted = 0;
+        let failed = 0;
+
+        for (const it of items) {
+          const dirId = (it?.dirId || "").toString().trim();
+          const filename = (it?.filename || "").toString();
+          if (!dirId || !filename) {
+            failed++;
+            results.push({ ok: false, dirId, filename, error: "missing dirId/filename" });
+            continue;
+          }
+          const dir = dirs.find((d) => d.id === dirId);
+          if (!dir) {
+            failed++;
+            results.push({ ok: false, dirId, filename, error: "dir not found" });
+            continue;
+          }
+          const filePath = safeJoin(dir.path, filename);
+          if (!filePath) {
+            failed++;
+            results.push({ ok: false, dirId, filename, error: "bad path" });
+            continue;
+          }
+
+          try {
+            const st = await fsp.stat(filePath);
+            if (!st.isFile()) {
+              failed++;
+              results.push({ ok: false, dirId, filename, error: "not a file" });
+              continue;
+            }
+          } catch (e) {
+            // 文件不存在：视为已删除（幂等）
+            if (e && e.code === "ENOENT") {
+              results.push({ ok: true, dirId, filename, deleted: false, skipped: "not found" });
+              continue;
+            }
+            failed++;
+            results.push({ ok: false, dirId, filename, error: String(e?.message || e) });
+            continue;
+          }
+
+          try {
+            await fsp.unlink(filePath);
+            deleted++;
+            results.push({ ok: true, dirId, filename, deleted: true });
+          } catch (e) {
+            if (e && e.code === "ENOENT") {
+              results.push({ ok: true, dirId, filename, deleted: false, skipped: "not found" });
+            } else {
+              failed++;
+              results.push({ ok: false, dirId, filename, error: String(e?.message || e) });
+            }
+          }
+
+          // Best-effort: 清理缩略图缓存（不依赖文件类型，删不到就忽略）
+          try {
+            await fsp.unlink(thumbGenerator.getThumbPath({ dirId, filename })).catch(() => {});
+          } catch {}
+          try {
+            await fsp.unlink(videoThumbGenerator.getThumbPath({ dirId, filename })).catch(() => {});
+          } catch {}
+        }
+
+        let reindex = null;
+        try {
+          reindex = await indexer.updateCheck({ force: true });
+        } catch (e) {
+          reindex = { ok: false, error: String(e?.message || e) };
+        }
+
+        return sendJson(res, 200, { ok: true, deleted, failed, results, reindex });
+      } catch (e) {
+        return sendJson(res, 400, { ok: false, error: String(e?.message || e) });
       }
     }
 

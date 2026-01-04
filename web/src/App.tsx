@@ -539,6 +539,7 @@ function App() {
           onSetItemIdx={handleModalSetItemIdx}
           onGroupStep={handleGroupStep}
           onFeedModeChange={handleFeedModeChange}
+          onReload={() => loadResources({ reset: true })}
         />
       )}
     </>

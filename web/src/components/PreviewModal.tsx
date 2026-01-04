@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image } from 'antd';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Mousewheel, Keyboard } from 'swiper/modules';
@@ -6,10 +6,11 @@ import type { Swiper as SwiperClass } from 'swiper';
 import 'swiper/css';
 import 'swiper/css/mousewheel';
 import 'swiper/css/keyboard';
-import { MediaGroup } from '../api';
+import { MediaGroup, deleteMediaItems } from '../api';
 import { escHtml, clamp } from '../utils';
 import { inspectMedia } from '../api';
 import { getPreferredItemIndex } from '../utils/media';
+import BaseVideo from './BaseVideo';
 
 interface PreviewModalProps {
   groups: MediaGroup[];
@@ -21,6 +22,7 @@ interface PreviewModalProps {
   onSetItemIdx: (nextIdx: number) => void;
   onGroupStep: (delta: number) => void;
   onFeedModeChange?: (feedMode: boolean) => void;
+  onReload?: () => void;
 }
 
 export default function PreviewModal({
@@ -33,6 +35,7 @@ export default function PreviewModal({
   onSetItemIdx,
   onGroupStep,
   onFeedModeChange,
+  onReload,
 }: PreviewModalProps) {
   const [warnVisible, setWarnVisible] = useState(false);
   const [warnExtra, setWarnExtra] = useState('');
@@ -41,13 +44,34 @@ export default function PreviewModal({
   const [isMuted, setIsMuted] = useState(true); // 默认静音（feedMode 默认静音）
   const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
   const [imagePreviewCurrent, setImagePreviewCurrent] = useState(0);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
   const swiperRef = useRef<SwiperClass | null>(null);
   const lastSlideRef = useRef(groupIdx);
   const lastItemIdxRef = useRef(itemIdx);
   const modalRef = useRef<HTMLDivElement>(null);
   const bodyScrollYRef = useRef<number>(0);
   const thumbStripRef = useRef<HTMLDivElement>(null);
+  const suppressNextClickRef = useRef(false);
+  const swipeRef = useRef<{
+    active: boolean;
+    pointerId: number | null;
+    startX: number;
+    startY: number;
+    startTime: number;
+    blocked: boolean;
+  }>({
+    active: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    startTime: 0,
+    blocked: false,
+  });
+
+  const bindVideoEl = useCallback((el: HTMLVideoElement | null) => {
+    setVideoEl(el);
+  }, []);
 
   const group = groups[groupIdx];
   if (!group) {
@@ -132,13 +156,13 @@ export default function PreviewModal({
 
   // 视频播放逻辑：仅在激活且是视频时处理
   useEffect(() => {
-    if (item.kind !== 'video' || !videoRef.current) {
+    if (item.kind !== 'video' || !videoEl) {
       setIsPlaying(false);
       return;
     }
-    const v = videoRef.current;
+    const v = videoEl;
     // 初始化静音状态：feedMode 默认静音，普通预览模式默认不静音
-    const initialMuted = feedMode;
+    const initialMuted = true; // 所有模式默认静音
     setIsMuted(initialMuted);
     v.muted = initialMuted;
 
@@ -218,7 +242,76 @@ export default function PreviewModal({
       v.removeEventListener('pause', handlePause);
       v.removeEventListener('volumechange', handleVolumeChange);
     };
-  }, [item, feedMode, clampedIdx, groupIdx, showInspectInfo]);
+  }, [item, feedMode, clampedIdx, groupIdx, showInspectInfo, videoEl]);
+
+  const canSwipeDetails = !feedMode && items.length > 1 && !imagePreviewOpen;
+
+  const handleDetailsPointerDown = (e: React.PointerEvent) => {
+    if (!canSwipeDetails) return;
+    // 仅处理主按钮，避免右键等
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const btn = (e as any).button;
+    if (typeof btn === 'number' && btn !== 0) return;
+
+    const target = e.target as HTMLElement | null;
+    if (
+      target?.closest(
+        'button, a, input, textarea, select, .customMuteButton, .video-react-control-bar, .video-react-big-play-button'
+      )
+    ) {
+      return;
+    }
+
+    swipeRef.current = {
+      active: true,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startTime: Date.now(),
+      blocked: false,
+    };
+
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleDetailsPointerMove = (e: React.PointerEvent) => {
+    const s = swipeRef.current;
+    if (!s.active || s.pointerId !== e.pointerId) return;
+    const dx = e.clientX - s.startX;
+    const dy = e.clientY - s.startY;
+    // 若明显是纵向移动，认为不是左右切换手势
+    if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) {
+      s.blocked = true;
+    }
+  };
+
+  const finishSwipe = (e: React.PointerEvent) => {
+    const s = swipeRef.current;
+    if (!s.active || s.pointerId !== e.pointerId) return;
+
+    const dx = e.clientX - s.startX;
+    const dy = e.clientY - s.startY;
+    const dt = Date.now() - s.startTime;
+
+    swipeRef.current.active = false;
+    swipeRef.current.pointerId = null;
+
+    if (s.blocked) return;
+
+    // 触发阈值：横向位移足够、且明显大于纵向位移、且在合理时间内
+    if (dt < 800 && Math.abs(dx) >= 60 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      // 向左滑 -> 下一项；向右滑 -> 上一项
+      onStep(dx < 0 ? 1 : -1);
+      suppressNextClickRef.current = true;
+    }
+  };
+
+  const handleDetailsPointerUp = (e: React.PointerEvent) => finishSwipe(e);
+  const handleDetailsPointerCancel = (e: React.PointerEvent) => finishSwipe(e);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -271,19 +364,54 @@ export default function PreviewModal({
   }, [feedMode, groupIdx]);
 
   const handleVideoClick = () => {
-    if (!videoRef.current) return;
+    if (!videoEl) return;
     if (isPlaying) {
-      videoRef.current.pause();
+      videoEl.pause();
     } else {
-      videoRef.current.play().catch(() => {});
+      videoEl.play().catch(() => {});
     }
   };
 
   const handleMuteToggle = (e: React.MouseEvent) => {
     e.stopPropagation(); // 防止触发视频播放/暂停
-    if (!videoRef.current) return;
-    videoRef.current.muted = !videoRef.current.muted;
-    setIsMuted(videoRef.current.muted);
+    if (!videoEl) return;
+    videoEl.muted = !videoEl.muted;
+    setIsMuted(videoEl.muted);
+  };
+
+  const doDelete = async (scope: 'item' | 'group') => {
+    if (deleting) return;
+    const targets =
+      scope === 'group'
+        ? (group.items || []).map((it) => ({ dirId: it.dirId || '', filename: it.filename }))
+        : [{ dirId: item.dirId || '', filename: item.filename }];
+
+    const missing = targets.find((x) => !x.dirId || !x.filename);
+    if (missing) {
+      window.alert('删除失败：缺少 dirId 或 filename（无法定位实际文件路径）');
+      return;
+    }
+
+    const count = targets.length;
+    const msg =
+      scope === 'group'
+        ? `确认删除当前合集（共 ${count} 个文件）？此操作不可恢复。`
+        : `确认删除当前文件？\n\n${item.filename}\n\n此操作不可恢复。`;
+
+    if (!window.confirm(msg)) return;
+
+    setDeleting(true);
+    try {
+      const r = await deleteMediaItems(targets);
+      if (!r.ok) throw new Error(r.error || '删除失败');
+      // 关闭弹窗并刷新列表，避免本地状态和后端索引不一致
+      onClose();
+      onReload?.();
+    } catch (e) {
+      window.alert(String(e instanceof Error ? e.message : e));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const renderMedia = (targetGroup: MediaGroup, currentIdx: number, isActive: boolean) => {
@@ -308,18 +436,20 @@ export default function PreviewModal({
         mediaElement = (
           <>
             <div className={useCustomControls ? 'customVideoWrapper' : 'videoWrapper'} onClick={useCustomControls ? handleVideoClick : undefined}>
-              <video
-                ref={videoRef}
+              <BaseVideo
                 key={`active-${groupIdx}-${currentIdx}`}
                 src={media.url}
-                controls={!useCustomControls}
                 autoPlay
                 playsInline
                 preload="metadata"
                 muted={isMuted}
                 loop={feedMode}
+                controls={!useCustomControls}
                 className={useCustomControls ? 'modalVideo customControls' : 'modalVideo'}
-              ></video>
+                wrapperClassName="w-full h-full"
+                playerStyle={{ width: '100%', height: '100%' }}
+                onVideoEl={bindVideoEl}
+              />
               {useCustomControls && (
                 <div className="customVideoControls" aria-hidden="true">
                   {!isPlaying && (
@@ -609,19 +739,43 @@ export default function PreviewModal({
               }}
             >
               {/* 主图：点击打开预览，并与缩略图条联动 */}
-              <div className="modalBodyInner" onClick={() => {
-                // 点击主图打开预览：同步 current
-                if (items[clampedIdx]?.kind !== 'image') return;
-                if (!imageUrls.length) return;
-                setImagePreviewCurrent(currentImageIndexInGroup);
-                setImagePreviewOpen(true);
-              }}>
+              <div
+                className="modalBodyInner"
+                onPointerDown={handleDetailsPointerDown}
+                onPointerMove={handleDetailsPointerMove}
+                onPointerUp={handleDetailsPointerUp}
+                onPointerCancel={handleDetailsPointerCancel}
+                onClick={() => {
+                  // 若刚触发左右滑动切换，则不要把这次当成“点击打开预览”
+                  if (suppressNextClickRef.current) {
+                    suppressNextClickRef.current = false;
+                    return;
+                  }
+                  // 点击主图打开预览：同步 current
+                  if (items[clampedIdx]?.kind !== 'image') return;
+                  if (!imageUrls.length) return;
+                  setImagePreviewCurrent(currentImageIndexInGroup);
+                  setImagePreviewOpen(true);
+                }}
+              >
                 {renderAlbumBody()}
               </div>
             </Image.PreviewGroup>
           ) : (
             // 单张图片或非图集：保持原行为（图片单独预览 / 视频播放）
-            (feedMode ? feedSwiper : renderMedia(group, clampedIdx, true))
+            (feedMode ? (
+              feedSwiper
+            ) : (
+              <div
+                className="modalBodyInner"
+                onPointerDown={handleDetailsPointerDown}
+                onPointerMove={handleDetailsPointerMove}
+                onPointerUp={handleDetailsPointerUp}
+                onPointerCancel={handleDetailsPointerCancel}
+              >
+                {renderMedia(group, clampedIdx, true)}
+              </div>
+            ))
           )}
         </div>
         {!feedMode && (
@@ -665,9 +819,29 @@ export default function PreviewModal({
                 {hint}
                 {warnExtra && `  |  ${escHtml(warnExtra)}`}
               </div>
-              <a id="download" className="btn ghost" href={item.url} download={item.filename}>
-                下载
-              </a>
+              <div className="modalActions">
+                <button
+                  type="button"
+                  className="btn compact danger ghost"
+                  disabled={deleting}
+                  onClick={() => doDelete('item')}
+                  title="删除当前文件"
+                >
+                  删除单张
+                </button>
+                <button
+                  type="button"
+                  className="btn compact danger"
+                  disabled={deleting}
+                  onClick={() => doDelete('group')}
+                  title="删除当前合集（整组）"
+                >
+                  删除合集
+                </button>
+                <a id="download" className="btn compact ghost" href={item.url} download={item.filename}>
+                  下载
+                </a>
+              </div>
             </div>
           </div>
         )}

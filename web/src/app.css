@@ -259,6 +259,59 @@ body{
 }
 .btn:hover{ transform: translateY(-1px); background: rgba(255,255,255,.08); }
 .btn.ghost{ background: transparent; }
+.btn.compact{
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+}
+.btn:disabled{
+  opacity: .55;
+  cursor: not-allowed;
+  transform: none;
+}
+.btn.danger{
+  border-color: rgba(255, 99, 132, .40);
+  background: rgba(255, 99, 132, .14);
+  color: rgba(255,255,255,.92);
+}
+.btn.danger:hover{
+  background: rgba(255, 99, 132, .18);
+  border-color: rgba(255, 99, 132, .55);
+}
+.btn.danger.ghost{
+  background: transparent;
+}
+.btn.danger.ghost:hover{
+  background: rgba(255, 99, 132, .10);
+}
+
+.modalActions{
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 520px){
+  .modalBottomRow{
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .modalHint{
+    white-space: normal;
+  }
+  .modalActions{
+    width: 100%;
+    justify-content: space-between;
+  }
+  .modalActions .btn{
+    flex: 1 1 auto;
+    text-align: center;
+  }
+}
 .btn.toggle.active{
   border-color: rgba(124,92,255,.65);
   background: linear-gradient(135deg, rgba(124,92,255,.22), rgba(39,211,255,.12));
@@ -679,6 +732,9 @@ body{
 .modalBodyInner{
   width: 100%;
   height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .modalItemSwiper{
   width: 100%;
@@ -699,6 +755,23 @@ body{
   border: 1px solid rgba(255,255,255,.10);
   background: rgba(0,0,0,.90);
   object-fit: contain;
+}
+
+/* video-react：默认用 padding-top 保持 16:9，这会破坏我们“充满容器”的布局；在 modal/feed 场景强制占满 */
+.video-react.modalVideo{
+  width: 100%;
+  height: 100%;
+  padding-top: 0 !important;
+  background: #000;
+}
+.video-react.modalVideo .video-react-video{
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+/* 沉浸模式用自定义播放按钮，隐藏 video-react 自带大播放按钮避免重叠 */
+.video-react.modalVideo.customControls .video-react-big-play-button{
+  display: none !important;
 }
 .modalBottom{
   padding: 10px 14px 14px;
@@ -904,6 +977,9 @@ body{
   position: relative;
   width: 100%;
   height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .customVideoWrapper{
   cursor: pointer;
