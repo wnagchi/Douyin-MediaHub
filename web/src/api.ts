@@ -94,6 +94,8 @@ export interface FetchResourcesParams {
   type?: string;
   dirId?: string;
   tag?: string;
+  // 当需要过滤“未知发布者”时 author 可能是空字符串，因此不能用 truthy 判断
+  author?: string;
   sort?: 'publish' | 'ingest';
 }
 
@@ -105,6 +107,7 @@ export async function fetchResources(params: FetchResourcesParams = {}): Promise
   if (params.type) query.set('type', params.type);
   if (params.dirId) query.set('dirId', params.dirId);
   if (params.tag) query.set('tag', params.tag);
+  if (params.author !== undefined) query.set('author', String(params.author ?? ''));
   if (params.sort) query.set('sort', params.sort);
   const qs = query.toString();
   const url = qs ? `/api/resources?${qs}` : '/api/resources';
@@ -134,6 +137,40 @@ export async function fetchTags(params: { q?: string; dirId?: string; limit?: nu
   const url = qs ? `/api/tags?${qs}` : '/api/tags';
   const r = await fetch(url, { cache: 'no-store' });
   return asJson<TagsResponse>(r);
+}
+
+export interface AuthorStat {
+  author: string; // 可能为空字符串（未知发布者）
+  groupCount: number;
+  itemCount: number;
+  latestTimestampMs?: number;
+}
+
+export interface AuthorsResponse {
+  ok: boolean;
+  code?: string;
+  error?: string;
+  dirs?: MediaDir[];
+  mediaDirs?: string[];
+  defaultMediaDirs?: string[];
+  authors?: AuthorStat[];
+  pagination?: PaginationInfo;
+}
+
+export async function fetchAuthors(
+  params: { page?: number; pageSize?: number; q?: string; dirId?: string; type?: string; tag?: string } = {}
+): Promise<AuthorsResponse> {
+  const query = new URLSearchParams();
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+  if (params.q) query.set('q', params.q);
+  if (params.dirId) query.set('dirId', params.dirId);
+  if (params.type) query.set('type', params.type);
+  if (params.tag) query.set('tag', params.tag);
+  const qs = query.toString();
+  const url = qs ? `/api/authors?${qs}` : '/api/authors';
+  const r = await fetch(url, { cache: 'no-store' });
+  return asJson<AuthorsResponse>(r);
 }
 
 export async function fetchConfig(): Promise<ConfigResponse> {

@@ -5,11 +5,13 @@ import MediaGrid from './components/MediaGrid';
 import MediaTiles from './components/MediaTiles';
 import PreviewModal from './components/PreviewModal';
 import SetupCard from './components/SetupCard';
+import PublisherView from './components/PublisherView';
 import {
   fetchResources,
   fetchConfig,
   saveConfigMediaDirs,
   fetchTags,
+  fetchAuthors,
   type MediaGroup,
   type MediaDir,
   type PaginationInfo,
@@ -38,7 +40,7 @@ interface AppState {
   renderLimit: number;
   expanded: boolean;
   topbarCollapsed: boolean;
-  viewMode: 'masonry' | 'album';
+  viewMode: 'masonry' | 'album' | 'publisher';
   sortMode: 'publish' | 'ingest';
   modal: {
     open: boolean;
@@ -68,12 +70,13 @@ function App() {
       return false;
     }
   })();
-  const initialViewMode: 'masonry' | 'album' = (() => {
+  const initialViewMode: 'masonry' | 'album' | 'publisher' = (() => {
     try {
       const v = localStorage.getItem('ui_view_mode');
       // 兼容旧值：'tiles' -> 'masonry', 'cards' -> 'album'
       if (v === 'tiles' || v === 'masonry') return 'masonry';
       if (v === 'cards' || v === 'album') return 'album';
+      if (v === 'publisher') return 'publisher';
       return 'masonry';
     } catch {
       return 'masonry';
@@ -245,8 +248,69 @@ function App() {
     [state.activeDirId, state.activeTag, state.activeType, state.pagination.page, state.q, state.sortMode]
   );
 
+  const loadAuthorsMeta = useCallback(async () => {
+    // 用 /api/authors 取 dirs + setup 信息（避免 publisher 模式还去加载 groups）
+    setState((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const r = await fetchAuthors({ page: 1, pageSize: 1 });
+      if (!r.ok) {
+        if (r.code === 'NO_MEDIA_DIR') {
+          const setup = {
+            needed: true,
+            mediaDirs: r.mediaDirs || [],
+            defaultMediaDirs: r.defaultMediaDirs || [],
+            fromEnv: false,
+          };
+          try {
+            const cfg = await fetchConfig();
+            if (cfg.ok) setup.fromEnv = Boolean(cfg.fromEnv);
+          } catch {
+            // ignore
+          }
+          setState((prev) => ({
+            ...prev,
+            setup,
+            groups: [],
+            dirs: [],
+            loading: false,
+            loadingMore: false,
+            pagination: {
+              page: 0,
+              pageSize: PAGE_SIZE,
+              total: 0,
+              totalPages: 0,
+              hasMore: false,
+              totalItems: 0,
+            },
+          }));
+          return;
+        }
+        throw new Error(r.error || 'API error');
+      }
+      setState((prev) => ({
+        ...prev,
+        setup: { ...prev.setup, needed: false },
+        dirs: r.dirs || prev.dirs,
+        loading: false,
+        loadingMore: false,
+        error: null,
+      }));
+    } catch (e) {
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        loadingMore: false,
+        error: String(e instanceof Error ? e.message : e),
+      }));
+    }
+  }, []);
+
   useEffect(() => {
-    loadResources({ reset: true });
+    if (initialViewMode === 'publisher') {
+      loadAuthorsMeta();
+    } else {
+      loadResources({ reset: true });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -277,7 +341,9 @@ function App() {
     overrides: Partial<Pick<AppState, 'q' | 'activeType' | 'activeDirId' | 'sortMode' | 'activeTag'>>
   ) => {
     setState((prev) => ({ ...prev, ...overrides }));
-    loadResources({ reset: true, overrideFilters: overrides });
+    if (state.viewMode !== 'publisher') {
+      loadResources({ reset: true, overrideFilters: overrides });
+    }
   };
 
   const handleSaveMediaDirs = async (mediaDirs: string[]) => {
@@ -395,13 +461,14 @@ function App() {
     });
   };
 
-  const visibleCount = Math.min(state.renderLimit, state.groups.length);
-  const visibleItems: MediaGridItem[] = state.groups.slice(0, visibleCount).map((group, groupIdx) => ({ group, groupIdx }));
+  const visibleCount = state.viewMode === 'publisher' ? 0 : Math.min(state.renderLimit, state.groups.length);
+  const visibleItems: MediaGridItem[] =
+    state.viewMode === 'publisher'
+      ? []
+      : state.groups.slice(0, visibleCount).map((group, groupIdx) => ({ group, groupIdx }));
 
-  const sections: MediaGridSection[] = (() => {
-    // 合集模式：直接返回所有 items，不再按 author 分组
-    return [{ key: 'all', title: '', items: visibleItems }];
-  })();
+  const sections: MediaGridSection[] =
+    state.viewMode === 'album' ? [{ key: 'all', title: '', items: visibleItems }] : [];
 
   const tileItems: TileItem[] = (() => {
     if (state.viewMode !== 'masonry') return [];
@@ -456,7 +523,10 @@ function App() {
           if (state.sortMode) qs.set('sort', state.sortMode);
           navigate({ pathname: '/feed', search: `?${qs.toString()}` });
         }}
-        onRefresh={() => loadResources({ reset: true })}
+        onRefresh={() => {
+          if (state.viewMode === 'publisher') return loadAuthorsMeta();
+          return loadResources({ reset: true });
+        }}
         onExpandedChange={(expanded) => {
           try {
             localStorage.setItem('ui_expanded', expanded ? '1' : '0');
@@ -469,11 +539,35 @@ function App() {
           } catch {}
           setState((prev) => ({ ...prev, topbarCollapsed: collapsed }));
         }}
-        onViewModeChange={(mode: 'masonry' | 'album') => {
+        onViewModeChange={(mode: 'masonry' | 'album' | 'publisher') => {
           try {
             localStorage.setItem('ui_view_mode', mode);
           } catch {}
-          setState((prev) => ({ ...prev, viewMode: mode }));
+          if (mode === 'publisher') {
+            // 进入发布者模式：清空已加载 groups，避免大数据常驻导致卡顿/崩溃
+            setState((prev) => ({
+              ...prev,
+              viewMode: mode,
+              groups: [],
+              renderLimit: GROUP_BATCH,
+              modal: { ...prev.modal, open: false },
+              feedMode: false,
+              pagination: {
+                page: 0,
+                pageSize: PAGE_SIZE,
+                total: 0,
+                totalPages: 0,
+                hasMore: false,
+                totalItems: 0,
+              },
+            }));
+            loadAuthorsMeta();
+          } else {
+            const leavingPublisher = state.viewMode === 'publisher';
+            setState((prev) => ({ ...prev, viewMode: mode }));
+            // 仅从 publisher 切回时，重新加载主列表（publisher 模式会清空 groups）
+            if (leavingPublisher) loadResources({ reset: true, overrideFilters: {} });
+          }
         }}
         onSortModeChange={(mode) => {
           try {
@@ -483,33 +577,44 @@ function App() {
         }}
       />
       <main className={`container ${state.expanded ? 'expanded' : ''}`}>
-        <div className="metaRow">
-          <div className="meta">
-            {state.loading
-              ? '加载中…'
-              : state.error
-                ? `加载失败：${state.error}`
-                : state.setup.needed
-                  ? '未检测到 media 目录：请先配置资源目录（绝对路径）'
-                  : (() => {
-                      const displayed = visibleCount;
-                      const totalGroups = state.pagination.total || state.groups.length;
-                      const loadedItems = state.groups.reduce((acc, g) => acc + (g.items?.length || 0), 0);
-                      const totalItems = state.pagination.totalItems || loadedItems;
-                      return `groups: ${displayed}/${totalGroups}  |  items: ${Math.min(
-                        loadedItems,
-                        totalItems
-                      )}/${totalItems}  |  filter: ${state.activeType}  |  tag: ${state.activeTag || '-'}  |  q: ${
-                        state.q || '-'
-                      }`;
-                    })()}
+        {(state.viewMode !== 'publisher' || state.loading || state.error || state.setup.needed) && (
+          <div className="metaRow">
+            <div className="meta">
+              {state.loading
+                ? '加载中…'
+                : state.error
+                  ? `加载失败：${state.error}`
+                  : state.setup.needed
+                    ? '未检测到 media 目录：请先配置资源目录（绝对路径）'
+                    : (() => {
+                        const displayed = visibleCount;
+                        const totalGroups = state.pagination.total || state.groups.length;
+                        const loadedItems = state.groups.reduce((acc, g) => acc + (g.items?.length || 0), 0);
+                        const totalItems = state.pagination.totalItems || loadedItems;
+                        return `groups: ${displayed}/${totalGroups}  |  items: ${Math.min(
+                          loadedItems,
+                          totalItems
+                        )}/${totalItems}  |  filter: ${state.activeType}  |  tag: ${state.activeTag || '-'}  |  q: ${
+                          state.q || '-'
+                        }`;
+                      })()}
+            </div>
           </div>
-        </div>
+        )}
 
         {state.setup.needed ? (
           <SetupCard
             setup={state.setup}
             onSave={handleSaveMediaDirs}
+          />
+        ) : state.viewMode === 'publisher' ? (
+          <PublisherView
+            q={state.q}
+            activeType={state.activeType}
+            activeDirId={state.activeDirId}
+            activeTag={state.activeTag}
+            sortMode={state.sortMode}
+            expanded={state.expanded}
           />
         ) : state.viewMode === 'masonry' ? (
           <MediaTiles

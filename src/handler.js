@@ -58,6 +58,9 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
         const dirFilter = (u.searchParams.get("dirId") || "").trim();
         const qFilter = (u.searchParams.get("q") || "").trim();
         const tagFilter = (u.searchParams.get("tag") || "").trim();
+        // author：当 query string 中显式出现 author= 时，即使为空字符串也视为过滤条件（用于“未知发布者”）
+        const hasAuthorParam = u.searchParams.has("author");
+        const authorFilter = hasAuthorParam ? String(u.searchParams.get("author") || "") : "";
         const sort = (u.searchParams.get("sort") || "").trim() || "publish";
 
         const dirsWithStatus = await Promise.all(
@@ -75,6 +78,7 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
           dirId: dirFilter,
           q: qFilter,
           tag: tagFilter,
+          author: hasAuthorParam ? authorFilter : undefined,
           sort,
         });
 
@@ -84,6 +88,42 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
           groups: result.groups || [],
           pagination: result.pagination,
         });
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
+      }
+    }
+
+    if (req.method === "GET" && pathname === "/api/authors") {
+      const mediaDirs = mediaStore.getMediaDirs();
+      const existing = await mediaStore.listExistingDirs();
+
+      if (!existing.length) {
+        return sendJson(res, 200, {
+          ok: false,
+          code: "NO_MEDIA_DIR",
+          error: "未找到 media 目录，请在页面里配置资源目录（绝对路径）。",
+          mediaDirs: mediaDirs.map((d) => d.path),
+          defaultMediaDirs: mediaStore.getDefaultDirs().map((d) => d.path),
+        });
+      }
+
+      try {
+        const pageParam = Number.parseInt(u.searchParams.get("page") || "1", 10);
+        const sizeParam = Number.parseInt(u.searchParams.get("pageSize") || "200", 10);
+        const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
+        const pageSize = Math.min(500, Math.max(1, Number.isFinite(sizeParam) && sizeParam > 0 ? sizeParam : 200));
+        const q = (u.searchParams.get("q") || "").trim();
+        const dirFilter = (u.searchParams.get("dirId") || "").trim();
+        const typeFilter = (u.searchParams.get("type") || "").trim();
+        const tagFilter = (u.searchParams.get("tag") || "").trim();
+        const dirsWithStatus = await Promise.all(
+          mediaDirs.map(async (d) => ({
+            ...d,
+            exists: await dirExists(d.path),
+          }))
+        );
+        const r = indexer.queryAuthors({ page, pageSize, q, dirId: dirFilter, type: typeFilter, tag: tagFilter });
+        return sendJson(res, 200, { ...r, dirs: dirsWithStatus });
       } catch (e) {
         return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
       }

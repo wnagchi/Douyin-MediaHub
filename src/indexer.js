@@ -370,7 +370,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     }
   }
 
-  function queryResources({ page = 1, pageSize = 30, type = "", dirId = "", q = "", sort = "publish", tag = "" } = {}) {
+  function queryResources({ page = 1, pageSize = 30, type = "", dirId = "", q = "", sort = "publish", tag = "", author } = {}) {
     initDb();
     const safePage = Number.isFinite(page) && page > 0 ? page : 1;
     const safeSize = Math.min(200, Math.max(1, Number.isFinite(pageSize) && pageSize > 0 ? pageSize : 30));
@@ -380,6 +380,8 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     const qFilter = String(q || "").trim().toLowerCase();
     const tagFilterRaw = String(tag || "").trim();
     const tagFilter = tagFilterRaw ? normalizeTagInput(tagFilterRaw) : "";
+    // author 为空字符串也可能是有效过滤（“未知发布者”），因此仅当 author !== undefined 时启用该过滤
+    const authorFilter = author !== undefined ? String(author ?? "") : "";
 
     const where = [];
     const params = {};
@@ -387,6 +389,11 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     if (dirFilter) {
       where.push(`mi.dirId = :dirId`);
       params.dirId = dirFilter;
+    }
+
+    if (author !== undefined) {
+      where.push(`COALESCE(mi.author,'') = :author`);
+      params.author = authorFilter;
     }
 
     if (qFilter) {
@@ -544,6 +551,95 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     };
   }
 
+  function queryAuthors({ page = 1, pageSize = 200, q = "", dirId = "", type = "", tag = "" } = {}) {
+    initDb();
+    const safePage = Number.isFinite(page) && page > 0 ? page : 1;
+    const safeSize = Math.min(500, Math.max(1, Number.isFinite(pageSize) && pageSize > 0 ? pageSize : 200));
+
+    const dirFilter = String(dirId || "").trim();
+    const typeFilter = normalizeType(type);
+    const tagFilterRaw = String(tag || "").trim();
+    const tagFilter = tagFilterRaw ? normalizeTagInput(tagFilterRaw) : "";
+    const qFilter = String(q || "").trim().toLowerCase();
+
+    const where = [];
+    const params = {};
+
+    if (dirFilter) {
+      where.push(`mi.dirId = :dirId`);
+      params.dirId = dirFilter;
+    }
+
+    if (typeFilter) {
+      where.push(
+        `EXISTS (SELECT 1 FROM media_item_types mit WHERE mit.dirId=mi.dirId AND mit.filename=mi.filename AND mit.type=:type)`
+      );
+      params.type = typeFilter;
+    }
+
+    if (tagFilter) {
+      where.push(
+        `EXISTS (SELECT 1 FROM media_item_tags mit2 WHERE mit2.dirId=mi.dirId AND mit2.filename=mi.filename AND mit2.tag=:tag)`
+      );
+      params.tag = tagFilter;
+    }
+
+    // authors 列表的 q：只匹配发布者字段（更符合“按发布者查看”，也更便宜）
+    if (qFilter) {
+      where.push(`LOWER(COALESCE(mi.author,'')) LIKE :q ESCAPE '\\\\'`);
+      params.q = `%${toSafeLike(qFilter)}%`;
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+    const totalRow = db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM (
+           SELECT 1
+           FROM media_items mi
+           ${whereSql}
+           GROUP BY COALESCE(mi.author,'')
+         )`
+      )
+      .get(params);
+    const total = totalRow?.c || 0;
+    const totalPages = total ? Math.max(1, Math.ceil(total / safeSize)) : 1;
+    const pageClamped = Math.min(Math.max(1, safePage), totalPages);
+    const offset = (pageClamped - 1) * safeSize;
+
+    const rows = db
+      .prepare(
+        `SELECT
+           COALESCE(mi.author,'') AS author,
+           COUNT(DISTINCT (COALESCE(mi.timeText,'') || '|' || COALESCE(mi.author,'') || '|' || COALESCE(mi.theme,''))) AS groupCount,
+           COUNT(*) AS itemCount,
+           MAX(COALESCE(mi.timestampMs, 0)) AS latestTimestampMs
+         FROM media_items mi
+         ${whereSql}
+         GROUP BY COALESCE(mi.author,'')
+         ORDER BY groupCount DESC, itemCount DESC, latestTimestampMs DESC, author ASC
+         LIMIT :limit OFFSET :offset`
+      )
+      .all({ ...params, limit: safeSize, offset });
+
+    return {
+      ok: true,
+      authors: rows.map((r) => ({
+        author: String(r.author ?? ""),
+        groupCount: Number(r.groupCount) || 0,
+        itemCount: Number(r.itemCount) || 0,
+        latestTimestampMs: Number(r.latestTimestampMs) || 0,
+      })),
+      pagination: {
+        page: pageClamped,
+        pageSize: safeSize,
+        total,
+        totalPages,
+        hasMore: pageClamped < totalPages,
+      },
+    };
+  }
+
   function queryTags({ q = "", limit = 200, dirId = "" } = {}) {
     initDb();
     const qFilter = String(q || "").trim();
@@ -599,6 +695,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     initDb,
     updateCheck,
     queryResources,
+    queryAuthors,
     queryTags,
   };
 }

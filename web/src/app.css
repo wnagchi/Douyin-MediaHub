@@ -982,6 +982,185 @@ body.immersiveRoute{
 .feedSlide.inactive{
   filter: saturate(.85) brightness(.85);
 }
+
+/* --- Publisher view (按发布者查看) --- */
+.publisherLayout{
+  display:flex;
+  gap:16px;
+  align-items: stretch;
+}
+.publisherSidebar{
+  width: 320px;
+  flex: 0 0 320px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.22);
+  border-radius: 16px;
+  overflow: hidden;
+  display:flex;
+  flex-direction: column;
+}
+.publisherSidebarHeader{
+  padding: 12px 12px 8px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.10);
+}
+.publisherSidebarTitle{
+  font-weight: 850;
+  letter-spacing: .2px;
+  color: rgba(255,255,255,.92);
+}
+.publisherSidebarMeta{
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: rgba(255,255,255,.55);
+}
+.publisherFilterBar{
+  margin-top: 8px;
+  display:flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.publisherFilterBarMain{
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+.publisherFilterPill{
+  display:inline-flex;
+  align-items:center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.80);
+  font-size: 12px;
+  font-family: var(--mono);
+  line-height: 18px;
+}
+.publisherSidebarHint{
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(255,255,255,.72);
+  border-bottom: 1px solid rgba(255,255,255,.10);
+}
+.publisherAuthorList{
+  padding: 8px;
+  overflow: auto;
+  flex: 1 1 auto;
+}
+.publisherAuthorRow{
+  width: 100%;
+  display:flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  color: rgba(255,255,255,.88);
+  padding: 10px 10px;
+  border-radius: 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease;
+}
+.publisherAuthorRow:hover{
+  transform: translateY(-1px);
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.16);
+}
+.publisherAuthorRow.active{
+  background: rgba(64, 160, 255, .16);
+  border-color: rgba(64, 160, 255, .28);
+}
+.publisherAuthorName{
+  font-weight: 750;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.publisherAuthorCounts{
+  display:flex;
+  gap: 6px;
+  align-items: center;
+}
+.chip.mini{
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.publisherSidebarFooter{
+  padding: 10px 12px 12px 12px;
+  border-top: 1px solid rgba(255,255,255,.10);
+}
+.publisherEndHint{
+  color: rgba(255,255,255,.55);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.publisherMain{
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.publisherMainHeader{
+  display:flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.publisherMainTitle{
+  font-weight: 900;
+  color: rgba(255,255,255,.92);
+  letter-spacing: .2px;
+}
+.publisherMainMeta{
+  font-family: var(--mono);
+  font-size: 12px;
+  color: rgba(255,255,255,.55);
+  margin-left: auto;
+}
+.publisherMainActions{
+  display:flex;
+  gap: 8px;
+  align-items: center;
+}
+.publisherMainEmpty,.publisherEmpty{
+  padding: 16px 12px;
+  color: rgba(255,255,255,.72);
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 16px;
+}
+.publisherError{
+  padding: 12px;
+  color: rgba(255, 99, 132, .92);
+  background: rgba(255, 99, 132, .08);
+  border: 1px solid rgba(255, 99, 132, .22);
+  border-radius: 16px;
+}
+@media (max-width: 980px){
+  .publisherLayout{ flex-direction: column; gap: 12px; }
+  .publisherSidebar{ width: 100%; flex: 0 0 auto; }
+  .publisherAuthorRow{ padding: 12px 12px; }
+  .publisherAuthorName{ max-width: calc(100vw - 170px); }
+  .publisherMainHeader{
+    position: sticky;
+    top: calc(var(--topbar-h, 72px) + 8px);
+    z-index: 2;
+    padding: 10px 0;
+    background: rgba(0,0,0,.55);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255,255,255,.10);
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .publisherMainActions .btn{ padding: 10px 12px; }
+  .publisherFilterPill{ padding: 4px 8px; }
+}
 .feedSlide img,
 .feedSlide .ant-image-img,
 .feedSlide video,

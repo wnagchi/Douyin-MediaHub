@@ -14,7 +14,7 @@ interface TopbarProps {
   dirs: MediaDir[];
   expanded: boolean;
   collapsed: boolean;
-  viewMode: 'masonry' | 'album';
+  viewMode: 'masonry' | 'album' | 'publisher';
   sortMode: 'publish' | 'ingest';
   onQChange: (q: string) => void;
   onTypeChange: (type: string) => void;
@@ -24,7 +24,7 @@ interface TopbarProps {
   onRefresh: () => void;
   onExpandedChange: (expanded: boolean) => void;
   onCollapsedChange: (collapsed: boolean) => void;
-  onViewModeChange: (mode: 'masonry' | 'album') => void;
+  onViewModeChange: (mode: 'masonry' | 'album' | 'publisher') => void;
   onSortModeChange: (mode: 'publish' | 'ingest') => void;
 }
 
@@ -55,6 +55,7 @@ export default function Topbar({
   onViewModeChange,
   onSortModeChange,
 }: TopbarProps) {
+  const headerRef = React.useRef<HTMLElement | null>(null);
   const [qValue, setQValue] = React.useState(q);
   const qTimerRef = React.useRef<number>();
   const onQChangeRef = React.useRef(onQChange);
@@ -66,6 +67,22 @@ export default function Topbar({
   React.useEffect(() => {
     onQChangeRef.current = onQChange;
   }, [onQChange]);
+
+  // 将 Topbar 实际高度写入 CSS 变量，供其它 sticky 元素避让（移动端尤其重要）
+  React.useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const set = () => {
+      const h = Math.max(0, Math.round(el.getBoundingClientRect().height || 0));
+      root.style.setProperty('--topbar-h', `${h}px`);
+    };
+    set();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => set());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [collapsed, viewMode, sortMode, dirs.length, tagStats.length]);
 
   React.useEffect(() => {
     setQValue(q);
@@ -117,7 +134,7 @@ export default function Topbar({
   }, [qValue]);
 
   return (
-    <header className={`topbar ${collapsed ? 'collapsed' : ''}`}>
+    <header ref={headerRef as any} className={`topbar ${collapsed ? 'collapsed' : ''}`}>
       <div className="brand">
         <div className="logo" aria-hidden="true">
           M
@@ -141,7 +158,7 @@ export default function Topbar({
           <input
             id="q"
             type="search"
-            placeholder="搜索：发布人 / 主题 / 类型..."
+            placeholder={viewMode === 'publisher' ? '搜索发布者（仅匹配发布者名）…' : '搜索：发布人 / 主题 / 类型...'}
             autoComplete="off"
             value={qValue}
             onChange={(e) => setQValue(e.target.value)}
@@ -237,11 +254,20 @@ export default function Topbar({
           </button>
           <button
             id="toggleViewMode"
-            className={`btn ghost toggle ${viewMode === 'masonry' ? 'active' : ''}`}
-            title={viewMode === 'masonry' ? '瀑布流模式：图片全部展示，手机2列，电脑自适应' : '合集模式：按组展示，手机1列，电脑2列'}
-            onClick={() => onViewModeChange(viewMode === 'masonry' ? 'album' : 'masonry')}
+            className={`btn ghost toggle ${viewMode !== 'album' ? 'active' : ''}`}
+            title={
+              viewMode === 'masonry'
+                ? '瀑布流模式：图片尽量全部展示（大数据量会更吃内存）'
+                : viewMode === 'album'
+                  ? '合集模式：按组展示（更省内存）'
+                  : '按发布者：先列发布者，再按发布者分页查看'
+            }
+            onClick={() => {
+              const next = viewMode === 'masonry' ? 'album' : viewMode === 'album' ? 'publisher' : 'masonry';
+              onViewModeChange(next);
+            }}
           >
-            {viewMode === 'masonry' ? '瀑布流' : '合集'}
+            {viewMode === 'masonry' ? '瀑布流' : viewMode === 'album' ? '合集' : '发布者'}
           </button>
 
           <button
