@@ -57,6 +57,7 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
         const typeFilter = (u.searchParams.get("type") || "").trim();
         const dirFilter = (u.searchParams.get("dirId") || "").trim();
         const qFilter = (u.searchParams.get("q") || "").trim();
+        const tagFilter = (u.searchParams.get("tag") || "").trim();
         const sort = (u.searchParams.get("sort") || "").trim() || "publish";
 
         const dirsWithStatus = await Promise.all(
@@ -73,6 +74,7 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
           type: typeFilter,
           dirId: dirFilter,
           q: qFilter,
+          tag: tagFilter,
           sort,
         });
 
@@ -82,6 +84,19 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
           groups: result.groups || [],
           pagination: result.pagination,
         });
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
+      }
+    }
+
+    if (req.method === "GET" && pathname === "/api/tags") {
+      try {
+        const q = (u.searchParams.get("q") || "").trim();
+        const dirFilter = (u.searchParams.get("dirId") || "").trim();
+        const limitParam = Number.parseInt(u.searchParams.get("limit") || "200", 10);
+        const limit = Number.isFinite(limitParam) ? limitParam : 200;
+        const r = indexer.queryTags({ q, limit, dirId: dirFilter });
+        return sendJson(res, 200, r);
       } catch (e) {
         return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
       }

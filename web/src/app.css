@@ -117,6 +117,11 @@ body{
   /* 防止双击缩放（部分浏览器） */
   touch-action: manipulation;
 }
+/* iOS Safari：沉浸页强制黑底，避免 rubber-band/合成间隙出现白色闪烁 */
+body.immersiveRoute{
+  background: #000 !important;
+  background-attachment: scroll !important;
+}
 #root{
   min-height: 100vh;
   background: transparent;
@@ -232,6 +237,37 @@ body{
   color: rgba(255,255,255,.92);
 }
 
+/* Tag modal theme: keep consistent with dark UI */
+.tagModal {
+  --ant-modal-content-bg: var(--bg1) !important; /* #0B1022 - 覆盖 Ant Design 变量 */
+  --ant-modal-header-bg: transparent !important;
+  --ant-modal-footer-bg: transparent !important;
+}
+.tagModal .ant-modal-content{
+  background: var(--bg1) !important; /* #0B1022 - 与主题一致 */
+  border: 1px solid rgba(255,255,255,.15) !important;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 20px 60px rgba(0,0,0,.6) !important;
+}
+.tagModal .ant-modal-header{
+  background: transparent !important;
+  border-bottom: 1px solid rgba(255,255,255,.12) !important;
+}
+.tagModal .ant-modal-title{
+  color: rgba(255,255,255,.92) !important;
+  font-weight: 600;
+}
+.tagModal .ant-modal-close{
+  color: rgba(255,255,255,.85) !important;
+}
+.tagModal .ant-modal-close:hover{
+  color: rgba(255,255,255,1) !important;
+}
+.tagModal .ant-modal-body{
+  color: rgba(255,255,255,.86);
+  background: transparent !important;
+}
+
 .container{
   max-width: 1200px;
   margin: 0 auto;
@@ -301,7 +337,14 @@ body{
     gap: 10px;
   }
   .modalHint{
+    /* 手机上文件名/描述可能极长：限制 2 行并省略，避免把按钮挤出屏幕 */
     white-space: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    word-break: break-all;
   }
   .modalActions{
     width: 100%;
@@ -310,6 +353,28 @@ body{
   .modalActions .btn{
     flex: 1 1 auto;
     text-align: center;
+  }
+}
+
+/* 平板/窄窗口也做同样处理（避免“接近手机宽度”时仍溢出） */
+@media (max-width: 860px){
+  .modalBottomRow{
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .modalHint{
+    white-space: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    word-break: break-all;
+  }
+  .modalActions{
+    width: 100%;
+    justify-content: space-between;
   }
 }
 .btn.toggle.active{
@@ -676,6 +741,10 @@ body{
   overscroll-behavior: none;
   touch-action: pan-y;
 }
+.modal.feed{
+  background: #000;
+  touch-action: none; /* 让 Swiper 接管手势，避免 iOS 把竖滑当页面滚动回弹 */
+}
 .modalBackdrop{
   position:absolute;
   inset:0;
@@ -869,24 +938,28 @@ body{
   position: relative;
   display: block;
   height: calc(100vh - 120px);
+  height: calc(100dvh - 120px);
+  background: #000;
 }
-.feedSwiper{
+.feedOneGroup{
   width: 100%;
   height: 100%;
   /* 防止滚动穿透 */
   overscroll-behavior: contain;
-  touch-action: pan-y;
-}
-.feedSwiper .swiper-slide{
-  display: flex;
-  align-items: stretch;
+  touch-action: none;
+  background: #000;
 }
 .itemSwiper{
   width: 100%;
   height: 100%;
   /* 防止滚动穿透 */
   overscroll-behavior: contain;
-  touch-action: pan-x;
+  touch-action: pan-y; /* horizontal swiper: 禁用默认横滑 */
+  background: #000;
+}
+.itemSwiper .swiper-wrapper,
+.itemSwiper .swiper-slide{
+  background: #000;
 }
 .itemSwiper .swiper-slide{
   display:flex;
@@ -901,6 +974,9 @@ body{
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  background: #000;
+}
+.feedSlide.far{
   background: #000;
 }
 .feedSlide.inactive{
@@ -920,7 +996,8 @@ body{
 .feedPlaceholder{
   display: grid;
   place-items: center;
-  background: rgba(0,0,0,.5);
+  background: #000;
+  color: rgba(255,255,255,.55);
 }
 .feedEmpty{
   width: 100%;
@@ -945,6 +1022,17 @@ body{
   letter-spacing: .2px;
   font-size: 15px;
   line-height: 1.35;
+}
+
+@media (max-width: 520px){
+  .feedOverlay .feedTitle{
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    word-break: break-word;
+  }
 }
 .feedOverlay .feedSub{
   margin-top: 8px;
@@ -1080,4 +1168,7 @@ body{
   font-size: 12px;
   font-family: var(--mono);
   word-break: break-all;
+}
+.ant-image{
+  display: block;
 }

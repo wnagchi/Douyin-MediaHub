@@ -16,10 +16,12 @@ export interface MediaItem {
 
 export interface MediaGroup {
   theme?: string;
+  themeText?: string;
   author?: string;
   timeText?: string;
   groupType?: string;
   types?: string[];
+  tags?: string[];
   items: MediaItem[];
   [key: string]: any;
 }
@@ -91,6 +93,7 @@ export interface FetchResourcesParams {
   q?: string;
   type?: string;
   dirId?: string;
+  tag?: string;
   sort?: 'publish' | 'ingest';
 }
 
@@ -101,11 +104,36 @@ export async function fetchResources(params: FetchResourcesParams = {}): Promise
   if (params.q) query.set('q', params.q);
   if (params.type) query.set('type', params.type);
   if (params.dirId) query.set('dirId', params.dirId);
+  if (params.tag) query.set('tag', params.tag);
   if (params.sort) query.set('sort', params.sort);
   const qs = query.toString();
   const url = qs ? `/api/resources?${qs}` : '/api/resources';
   const r = await fetch(url, { cache: 'no-store' });
   return asJson<ResourcesResponse>(r);
+}
+
+export interface TagStat {
+  tag: string; // stored without '#'
+  groupCount: number;
+  itemCount: number;
+  latestTimestampMs?: number;
+}
+
+export interface TagsResponse {
+  ok: boolean;
+  error?: string;
+  tags?: TagStat[];
+}
+
+export async function fetchTags(params: { q?: string; dirId?: string; limit?: number } = {}): Promise<TagsResponse> {
+  const query = new URLSearchParams();
+  if (params.q) query.set('q', params.q);
+  if (params.dirId) query.set('dirId', params.dirId);
+  if (params.limit) query.set('limit', String(params.limit));
+  const qs = query.toString();
+  const url = qs ? `/api/tags?${qs}` : '/api/tags';
+  const r = await fetch(url, { cache: 'no-store' });
+  return asJson<TagsResponse>(r);
 }
 
 export async function fetchConfig(): Promise<ConfigResponse> {

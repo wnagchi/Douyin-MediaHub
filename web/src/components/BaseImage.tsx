@@ -92,7 +92,7 @@ export default function BaseImage({
   }, [rootMargin, shouldLoad]);
 
   return (
-    <div ref={wrapperRef} className={`relative ${wrapperClassName}`} style={wrapperStyle}>
+    <div ref={wrapperRef} className={`relative ${wrapperClassName} `} style={wrapperStyle}>
       {!loaded && showSkeleton && (
         <div className="absolute inset-0 bg-white/10 animate-pulse" aria-hidden="true"></div>
       )}
@@ -102,7 +102,7 @@ export default function BaseImage({
         loading="lazy"
         decoding={decoding}
         src={shouldLoad ? src : undefined}
-        className={`w-full ${loaded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-200`}
+        className={`w-full block ${loaded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-200`}
         // className/imgStyle 语义保持：原 className 主要是给 img 的
         classNames={{ image: className }}
         styles={{ image: { width: '100%', height: 'auto', ...(imgStyle || {}) } }}

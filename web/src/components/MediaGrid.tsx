@@ -23,6 +23,7 @@ interface MediaGridProps {
   loadingMore: boolean;
   onLoadMore: () => void;
   onThumbClick: (groupIdx: number, itemIdx: number) => void;
+  onTagClick?: (tag: string) => void;
 }
 
 export default function MediaGrid({
@@ -34,6 +35,7 @@ export default function MediaGrid({
   loadingMore,
   onLoadMore,
   onThumbClick,
+  onTagClick,
 }: MediaGridProps) {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const moreObserverRef = useRef<IntersectionObserver | null>(null);
@@ -131,6 +133,7 @@ export default function MediaGrid({
                 groupIdx={groupIdx}
                 expanded={expanded}
                 onThumbClick={onThumbClick}
+                onTagClick={onTagClick}
               />
             ))}
           </div>

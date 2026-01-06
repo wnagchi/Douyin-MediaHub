@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const { DatabaseSync } = require("node:sqlite");
 
 const { parseMediaFilename } = require("./media");
+const { extractHashtags, normalizeTagInput, stripHashtags } = require("./tags");
 const { dirExists } = require("./utils/fs");
 const { createThumbGenerator } = require("./thumbs");
 const { createVideoThumbGenerator } = require("./videoThumbs");
@@ -94,11 +95,19 @@ CREATE TABLE IF NOT EXISTS media_item_types(
   PRIMARY KEY(dirId, filename, type)
 );
 
+CREATE TABLE IF NOT EXISTS media_item_tags(
+  dirId TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  tag TEXT NOT NULL,
+  PRIMARY KEY(dirId, filename, tag)
+);
+
 CREATE INDEX IF NOT EXISTS idx_items_group ON media_items(timestampMs DESC, timeText, author, theme);
 CREATE INDEX IF NOT EXISTS idx_items_author ON media_items(author);
 CREATE INDEX IF NOT EXISTS idx_items_theme ON media_items(theme);
 CREATE INDEX IF NOT EXISTS idx_items_timetext ON media_items(timeText);
 CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
+CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     `);
 
     // 轻量迁移：老库可能没有 createdAtMs/updatedAtMs（SQLite 允许 ADD COLUMN）
@@ -178,6 +187,8 @@ CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
       const deleteUnseenForDir = db.prepare(`DELETE FROM media_items WHERE dirId=? AND (seenRun IS NULL OR seenRun<>?)`);
       const deleteTypesForFile = db.prepare(`DELETE FROM media_item_types WHERE dirId=? AND filename=?`);
       const insertType = db.prepare(`INSERT OR IGNORE INTO media_item_types(dirId, filename, type) VALUES(?, ?, ?)`);
+      const deleteTagsForFile = db.prepare(`DELETE FROM media_item_tags WHERE dirId=? AND filename=?`);
+      const insertTag = db.prepare(`INSERT OR IGNORE INTO media_item_tags(dirId, filename, tag) VALUES(?, ?, ?)`);
 
       let scannedDirs = 0;
       let skippedDirs = 0;
@@ -231,8 +242,29 @@ CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
           const changed = !hasPrev || prevStat.mtimeMs !== fst.mtimeMs || prevStat.size !== fst.size;
 
           // Even if unchanged, update seenRun so delete step won't remove it.
+          // NOTE: force=1 的意义除了“强制扫描目录”，还用于回填新增的派生字段（如 tags）。
+          // 因此：文件未变化但 force=true 时，也要重建 types/tags（但不要生成缩略图，避免全量耗时）。
           if (!changed) {
             markSeen.run(scanRun, dir.id, name);
+            if (!force) continue;
+
+            // refresh types (force backfill)
+            deleteTypesForFile.run(dir.id, name);
+            for (const t of p.declaredTypes || []) {
+              const tt = normalizeType(t);
+              if (!tt) continue;
+              insertType.run(dir.id, name, tt);
+            }
+
+            // refresh tags (force backfill)
+            deleteTagsForFile.run(dir.id, name);
+            const themeText = String(p.theme || "");
+            const tags = extractHashtags(themeText, { max: 80 });
+            for (const t of tags) {
+              const nt = normalizeTagInput(t);
+              if (!nt) continue;
+              insertTag.run(dir.id, name, nt);
+            }
             continue;
           }
 
@@ -267,6 +299,16 @@ CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
             insertType.run(dir.id, name, tt);
           }
 
+          // refresh tags (from theme/描述中的 #标签)
+          deleteTagsForFile.run(dir.id, name);
+          const themeText = String(p.theme || "");
+          const tags = extractHashtags(themeText, { max: 80 });
+          for (const t of tags) {
+            const nt = normalizeTagInput(t);
+            if (!nt) continue;
+            insertTag.run(dir.id, name, nt);
+          }
+
           // Generate thumbnail for images
           if (p.kind === "image") {
             thumbGenerator.generateThumb({ absSourcePath: filePath, dirId: dir.id, filename: name }).catch((e) => {
@@ -297,6 +339,14 @@ CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
              WHERE mi.dirId = media_item_types.dirId AND mi.filename = media_item_types.filename
            )`
         );
+        // also cleanup orphaned tags
+        db.exec(
+          `DELETE FROM media_item_tags
+           WHERE NOT EXISTS (
+             SELECT 1 FROM media_items mi
+             WHERE mi.dirId = media_item_tags.dirId AND mi.filename = media_item_tags.filename
+           )`
+        );
 
         upsertDir.run(dir.id, dir.path, dirMtimeMs, nowMs());
       }
@@ -320,7 +370,7 @@ CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
     }
   }
 
-  function queryResources({ page = 1, pageSize = 30, type = "", dirId = "", q = "", sort = "publish" } = {}) {
+  function queryResources({ page = 1, pageSize = 30, type = "", dirId = "", q = "", sort = "publish", tag = "" } = {}) {
     initDb();
     const safePage = Number.isFinite(page) && page > 0 ? page : 1;
     const safeSize = Math.min(200, Math.max(1, Number.isFinite(pageSize) && pageSize > 0 ? pageSize : 30));
@@ -328,6 +378,8 @@ CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
     const typeFilter = normalizeType(type);
     const dirFilter = String(dirId || "").trim();
     const qFilter = String(q || "").trim().toLowerCase();
+    const tagFilterRaw = String(tag || "").trim();
+    const tagFilter = tagFilterRaw ? normalizeTagInput(tagFilterRaw) : "";
 
     const where = [];
     const params = {};
@@ -349,6 +401,13 @@ CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
         `EXISTS (SELECT 1 FROM media_item_types mit WHERE mit.dirId=mi.dirId AND mit.filename=mi.filename AND mit.type=:type)`
       );
       params.type = typeFilter;
+    }
+
+    if (tagFilter) {
+      where.push(
+        `EXISTS (SELECT 1 FROM media_item_tags mit2 WHERE mit2.dirId=mi.dirId AND mit2.filename=mi.filename AND mit2.tag=:tag)`
+      );
+      params.tag = tagFilter;
     }
 
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
@@ -391,8 +450,11 @@ CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
            mi.theme AS theme,
            MAX(COALESCE(mi.timestampMs, 0)) AS timestampMs,
            MAX(COALESCE(mi.createdAtMs, 0)) AS createdAtMs,
-           GROUP_CONCAT(DISTINCT COALESCE(mi.typeText,'')) AS typeTextList
+           GROUP_CONCAT(DISTINCT COALESCE(mi.typeText,'')) AS typeTextList,
+           GROUP_CONCAT(DISTINCT COALESCE(mit.tag,'')) AS tagList
          FROM media_items mi
+         LEFT JOIN media_item_tags mit
+           ON mit.dirId = mi.dirId AND mit.filename = mi.filename
          ${whereSql}
          GROUP BY mi.timeText, mi.author, mi.theme
          ${orderBy}
@@ -428,6 +490,13 @@ CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
       const types = Array.from(typesSet);
       const groupType = types.length > 1 ? "混合" : types[0] || "未知";
 
+      const tags = String(r.tagList || "")
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+      const uniqTags = Array.from(new Set(tags));
+      const themeText = stripHashtags(theme);
+
       return {
         id,
         timeText,
@@ -435,8 +504,10 @@ CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
         ingestAtMs: Number(r.createdAtMs) || null,
         author,
         theme,
+        themeText,
         groupType,
         types,
+        tags: uniqTags,
         items: items.map((it) => {
           const item = {
             filename: it.filename,
@@ -473,6 +544,54 @@ CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
     };
   }
 
+  function queryTags({ q = "", limit = 200, dirId = "" } = {}) {
+    initDb();
+    const qFilter = String(q || "").trim();
+    const dirFilter = String(dirId || "").trim();
+    const safeLimit = Math.min(1000, Math.max(1, Number.isFinite(limit) ? limit : 200));
+
+    const where = [];
+    const params = {};
+
+    if (dirFilter) {
+      where.push(`mi.dirId = :dirId`);
+      params.dirId = dirFilter;
+    }
+    if (qFilter) {
+      // tags are stored normalized to lower-case
+      where.push(`mit.tag LIKE :q ESCAPE '\\\\'`);
+      params.q = `%${toSafeLike(normalizeTagInput(qFilter))}%`;
+    }
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+    const rows = db
+      .prepare(
+        `SELECT
+           mit.tag AS tag,
+           COUNT(DISTINCT (COALESCE(mi.timeText,'') || '|' || COALESCE(mi.author,'') || '|' || COALESCE(mi.theme,''))) AS groupCount,
+           COUNT(*) AS itemCount,
+           MAX(COALESCE(mi.timestampMs, 0)) AS latestTimestampMs
+         FROM media_item_tags mit
+         JOIN media_items mi
+           ON mi.dirId = mit.dirId AND mi.filename = mit.filename
+         ${whereSql}
+         GROUP BY mit.tag
+         ORDER BY groupCount DESC, itemCount DESC, mit.tag ASC
+         LIMIT :limit`
+      )
+      .all({ ...params, limit: safeLimit });
+
+    return {
+      ok: true,
+      tags: rows.map((r) => ({
+        tag: r.tag,
+        groupCount: Number(r.groupCount) || 0,
+        itemCount: Number(r.itemCount) || 0,
+        latestTimestampMs: Number(r.latestTimestampMs) || 0,
+      })),
+    };
+  }
+
   return {
     get dbPath() {
       return dbPath;
@@ -480,6 +599,7 @@ CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
     initDb,
     updateCheck,
     queryResources,
+    queryTags,
   };
 }
 

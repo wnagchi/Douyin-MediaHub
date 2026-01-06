@@ -1,10 +1,16 @@
 import React from 'react';
-import { MediaDir } from '../api';
+import { Modal } from 'antd';
+import { MediaDir, TagStat } from '../api';
 
 interface TopbarProps {
   q: string;
   activeType: string;
   activeDirId: string;
+  activeTag: string;
+  tagStats: TagStat[];
+  tagStatsLoading: boolean;
+  tagStatsError: string | null;
+  onReloadTags: () => void;
   dirs: MediaDir[];
   expanded: boolean;
   collapsed: boolean;
@@ -13,6 +19,7 @@ interface TopbarProps {
   onQChange: (q: string) => void;
   onTypeChange: (type: string) => void;
   onDirChange: (dirId: string) => void;
+  onTagChange: (tag: string) => void;
   onFeedClick: () => void;
   onRefresh: () => void;
   onExpandedChange: (expanded: boolean) => void;
@@ -27,6 +34,11 @@ export default function Topbar({
   q,
   activeType,
   activeDirId,
+  activeTag,
+  tagStats,
+  tagStatsLoading,
+  tagStatsError,
+  onReloadTags,
   dirs,
   expanded,
   collapsed,
@@ -35,6 +47,7 @@ export default function Topbar({
   onQChange,
   onTypeChange,
   onDirChange,
+  onTagChange,
   onFeedClick,
   onRefresh,
   onExpandedChange,
@@ -46,6 +59,10 @@ export default function Topbar({
   const qTimerRef = React.useRef<number>();
   const onQChangeRef = React.useRef(onQChange);
 
+  const [tagValue, setTagValue] = React.useState(activeTag);
+  const [tagModalOpen, setTagModalOpen] = React.useState(false);
+  const [tagSearch, setTagSearch] = React.useState('');
+
   React.useEffect(() => {
     onQChangeRef.current = onQChange;
   }, [onQChange]);
@@ -53,6 +70,41 @@ export default function Topbar({
   React.useEffect(() => {
     setQValue(q);
   }, [q]);
+  React.useEffect(() => {
+    setTagValue(activeTag);
+  }, [activeTag]);
+
+  const safeTagStats = React.useMemo(() => {
+    return Array.isArray(tagStats) ? tagStats.filter((t) => t && t.tag) : [];
+  }, [tagStats]);
+
+  const filteredTagStats = React.useMemo(() => {
+    const q = tagSearch.trim().toLowerCase();
+    const base = safeTagStats;
+    const list = q ? base.filter((t) => (`#${t.tag}`).toLowerCase().includes(q)) : base;
+    return list.slice(0, q ? 800 : 300);
+  }, [safeTagStats, tagSearch]);
+
+  const tagTintStyle = React.useCallback((label: string) => {
+    // stable color from string -> hue
+    const s = String(label || '');
+    let h = 0;
+    for (let i = 0; i < s.length; i++) {
+      h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    }
+    const hue = h % 360;
+    // Higher contrast for readability on dark modal background
+    const bg = `hsla(${hue}, 85%, 56%, 0.30)`;
+    const border = `hsla(${hue}, 90%, 62%, 0.55)`;
+    const color = `hsla(${hue}, 90%, 96%, 0.98)`;
+    return {
+      background: bg,
+      borderColor: border,
+      color,
+      fontWeight: 650,
+      textShadow: '0 1px 2px rgba(0,0,0,.55)',
+    } as React.CSSProperties;
+  }, []);
 
   React.useEffect(() => {
     if (qTimerRef.current) clearTimeout(qTimerRef.current);
@@ -106,6 +158,32 @@ export default function Topbar({
             ×
           </button>
         </div>
+
+        <div className="search">
+          <input
+            id="tag"
+            type="search"
+            placeholder="标签筛选：输入 #自拍 或 自拍（可清空）"
+            autoComplete="off"
+            value={tagValue}
+            onChange={(e) => {
+              const v = e.target.value;
+              setTagValue(v);
+              onTagChange(v);
+            }}
+          />
+          <button
+            id="clearTag"
+            className="iconBtn"
+            title="清空标签"
+            onClick={() => {
+              setTagValue('');
+              onTagChange('');
+            }}
+          >
+            ×
+          </button>
+        </div>
         <div className="dirPick">
           <select
             id="dirSelect"
@@ -146,6 +224,18 @@ export default function Topbar({
         </div>
         <div className="metaActions">
           <button
+            id="openTagModal"
+            className="btn ghost"
+            title="打开标签库（弹层）"
+            onClick={() => {
+              setTagSearch('');
+              setTagModalOpen(true);
+              onReloadTags?.();
+            }}
+          >
+            标签库
+          </button>
+          <button
             id="toggleViewMode"
             className={`btn ghost toggle ${viewMode === 'masonry' ? 'active' : ''}`}
             title={viewMode === 'masonry' ? '瀑布流模式：图片全部展示，手机2列，电脑自适应' : '合集模式：按组展示，手机1列，电脑2列'}
@@ -178,6 +268,97 @@ export default function Topbar({
           </button>
         </div>
       </div>
+
+      <Modal
+        title="标签库（点击筛选）"
+        open={tagModalOpen}
+        onCancel={() => setTagModalOpen(false)}
+        footer={null}
+        centered
+        className="tagModal"
+      >
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <input
+            type="search"
+            placeholder="搜索标签…"
+            value={tagSearch}
+            onChange={(e) => setTagSearch(e.target.value)}
+            style={{
+              flex: 1,
+              border: '1px solid rgba(255,255,255,.12)',
+              background: 'rgba(255,255,255,.06)',
+              color: 'rgba(255,255,255,.92)',
+              borderRadius: 12,
+              padding: '10px 12px',
+              outline: 'none',
+            }}
+          />
+          <button className="btn ghost compact" onClick={() => setTagSearch('')} title="清空搜索">
+            清空
+          </button>
+        </div>
+
+        <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'rgba(255,255,255,.75)' }}>
+            当前筛选：{activeTag || '-'} | 显示：{filteredTagStats.length}/{safeTagStats.length}
+          </div>
+          {activeTag && (
+            <button
+              className="btn ghost compact"
+              onClick={() => {
+                setTagValue('');
+                onTagChange('');
+              }}
+              title="清空当前标签筛选"
+            >
+              清空筛选
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, maxHeight: '56vh', overflow: 'auto', paddingRight: 4 }}>
+          {tagStatsLoading && (
+            <div style={{ color: 'rgba(255,255,255,.75)', fontSize: 12, fontFamily: 'var(--mono)' }}>加载标签中…</div>
+          )}
+          {!tagStatsLoading && tagStatsError && (
+            <div style={{ color: 'rgba(255, 99, 132, .92)', fontSize: 12, fontFamily: 'var(--mono)' }}>
+              加载失败：{tagStatsError}
+            </div>
+          )}
+          {!tagStatsLoading && !tagStatsError && safeTagStats.length === 0 && (
+            <div style={{ color: 'rgba(255,255,255,.75)', fontSize: 12, fontFamily: 'var(--mono)', lineHeight: 1.6 }}>
+              <div>暂无标签统计。</div>
+              <div style={{ opacity: 0.85 }}>
+                可能原因：还没执行过 <code>/api/reindex?force=1</code> 回填 tags，或当前目录没有包含 <code>#标签</code> 的描述。
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <button className="btn" onClick={() => onReloadTags?.()}>
+                  重新加载标签
+                </button>
+              </div>
+            </div>
+          )}
+          {filteredTagStats.map((t) => {
+            const label = `#${t.tag}`;
+            const isActive = activeTag.trim() === label || activeTag.trim() === t.tag;
+            return (
+              <button
+                key={t.tag}
+                className={`chip ${isActive ? 'active' : ''}`}
+                style={isActive ? undefined : tagTintStyle(label)}
+                title={`${label} | groups=${t.groupCount} items=${t.itemCount}`}
+                onClick={() => {
+                  setTagValue(label);
+                  onTagChange(label);
+                  setTagModalOpen(false);
+                }}
+              >
+                {label} ({t.groupCount})
+              </button>
+            );
+          })}
+        </div>
+      </Modal>
     </header>
   );
 }

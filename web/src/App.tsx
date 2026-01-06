@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Topbar from './components/Topbar';
 import MediaGrid from './components/MediaGrid';
 import MediaTiles from './components/MediaTiles';
@@ -8,9 +9,11 @@ import {
   fetchResources,
   fetchConfig,
   saveConfigMediaDirs,
+  fetchTags,
   type MediaGroup,
   type MediaDir,
   type PaginationInfo,
+  type TagStat,
 } from './api';
 import { getPreferredItemIndex } from './utils/media';
 import type { MediaGridItem, MediaGridSection } from './components/MediaGrid';
@@ -28,6 +31,10 @@ interface AppState {
   activeType: string;
   activeDirId: string;
   q: string;
+  activeTag: string;
+  tagStats: TagStat[];
+  tagStatsLoading: boolean;
+  tagStatsError: string | null;
   renderLimit: number;
   expanded: boolean;
   topbarCollapsed: boolean;
@@ -53,6 +60,7 @@ interface AppState {
 }
 
 function App() {
+  const navigate = useNavigate();
   const initialExpanded = (() => {
     try {
       return localStorage.getItem('ui_expanded') === '1';
@@ -92,6 +100,10 @@ function App() {
     activeType: '全部',
     activeDirId: 'all',
     q: '',
+    activeTag: '',
+    tagStats: [],
+    tagStatsLoading: false,
+    tagStatsError: null,
     renderLimit: GROUP_BATCH,
     expanded: initialExpanded,
     topbarCollapsed: initialTopbarCollapsed,
@@ -125,13 +137,14 @@ function App() {
       overrideFilters = {},
     }: {
       reset?: boolean;
-      overrideFilters?: Partial<Pick<AppState, 'q' | 'activeType' | 'activeDirId' | 'sortMode'>>;
+      overrideFilters?: Partial<Pick<AppState, 'q' | 'activeType' | 'activeDirId' | 'sortMode' | 'activeTag'>>;
     } = {}) => {
       const filters = {
         q: overrideFilters.q ?? state.q,
         activeType: overrideFilters.activeType ?? state.activeType,
         activeDirId: overrideFilters.activeDirId ?? state.activeDirId,
         sortMode: overrideFilters.sortMode ?? state.sortMode,
+        activeTag: overrideFilters.activeTag ?? state.activeTag,
       };
 
       const nextPage = reset ? 1 : state.pagination.page + 1;
@@ -142,6 +155,7 @@ function App() {
       if (filters.q.trim()) params.q = filters.q.trim();
       if (filters.activeType && filters.activeType !== '全部') params.type = filters.activeType;
       if (filters.activeDirId && filters.activeDirId !== 'all') params.dirId = filters.activeDirId;
+      if (filters.activeTag && filters.activeTag.trim()) params.tag = filters.activeTag.trim();
       if (filters.sortMode) params.sort = filters.sortMode;
 
       setState((prev) => ({
@@ -152,30 +166,6 @@ function App() {
         error: null,
         ...(reset ? { renderLimit: GROUP_BATCH, groups: [] } : {}),
       }));
-
-      // Debug logging disabled by default (enable via localStorage: enableAgentLog=true)
-      if (typeof window !== 'undefined') {
-        try {
-          const enableLog = localStorage.getItem('enableAgentLog') === 'true';
-          if (enableLog && import.meta.env.DEV) {
-            fetch('http://127.0.0.1:7242/ingest/16b8df7c-fc7a-42ad-880f-3b84c1e70f04', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                sessionId: 'debug-session',
-                runId: 'run1',
-                hypothesisId: 'H1',
-                location: 'App.tsx:120',
-                message: 'loadResources start',
-                data: { reset, nextPage, filters, params },
-                timestamp: Date.now(),
-              }),
-            }).catch(() => {});
-          }
-        } catch {
-          // ignore localStorage errors
-        }
-      }
 
       try {
         const j = await fetchResources(params);
@@ -243,29 +233,6 @@ function App() {
           };
         });
 
-        // Debug logging disabled by default
-        if (typeof window !== 'undefined') {
-          try {
-            const enableLog = localStorage.getItem('enableAgentLog') === 'true';
-            if (enableLog && import.meta.env.DEV) {
-              fetch('http://127.0.0.1:7242/ingest/16b8df7c-fc7a-42ad-880f-3b84c1e70f04', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  sessionId: 'debug-session',
-                  runId: 'run1',
-                  hypothesisId: 'H2',
-                  location: 'App.tsx:179',
-                  message: 'loadResources success',
-                  data: { reset, returned: j.groups?.length || 0, pagination: j.pagination },
-                  timestamp: Date.now(),
-                }),
-              }).catch(() => {});
-            }
-          } catch {
-            // ignore localStorage errors
-          }
-        }
       } catch (err) {
         setState((prev) => ({
           ...prev,
@@ -275,7 +242,7 @@ function App() {
         }));
       }
     },
-    [state.activeDirId, state.activeType, state.pagination.page, state.q, state.sortMode]
+    [state.activeDirId, state.activeTag, state.activeType, state.pagination.page, state.q, state.sortMode]
   );
 
   useEffect(() => {
@@ -283,7 +250,32 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const refreshWithOverrides = (overrides: Partial<Pick<AppState, 'q' | 'activeType' | 'activeDirId' | 'sortMode'>>) => {
+  const reloadTags = useCallback(async () => {
+    const dirId = state.activeDirId && state.activeDirId !== 'all' ? state.activeDirId : '';
+    setState((prev) => ({ ...prev, tagStatsLoading: true, tagStatsError: null }));
+    try {
+      const r = await fetchTags({ dirId, limit: 800 });
+      if (!r.ok) throw new Error(r.error || '加载标签失败');
+      const stats = (r.tags || []).filter((x) => x && x.tag) as TagStat[];
+      setState((prev) => ({ ...prev, tagStats: stats, tagStatsLoading: false, tagStatsError: null }));
+    } catch (e) {
+      setState((prev) => ({
+        ...prev,
+        tagStatsLoading: false,
+        tagStatsError: String(e instanceof Error ? e.message : e),
+      }));
+    }
+  }, [state.activeDirId]);
+
+  // 标签统计：默认取当前目录（或全部目录）的 Top tags
+  useEffect(() => {
+    reloadTags();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.activeDirId]);
+
+  const refreshWithOverrides = (
+    overrides: Partial<Pick<AppState, 'q' | 'activeType' | 'activeDirId' | 'sortMode' | 'activeTag'>>
+  ) => {
     setState((prev) => ({ ...prev, ...overrides }));
     loadResources({ reset: true, overrideFilters: overrides });
   };
@@ -303,36 +295,6 @@ function App() {
   };
 
   const handleLoadMore = () => {
-    // Debug logging disabled by default
-    if (typeof window !== 'undefined') {
-      try {
-        const enableLog = localStorage.getItem('enableAgentLog') === 'true';
-        if (enableLog && import.meta.env.DEV) {
-          fetch('http://127.0.0.1:7242/ingest/16b8df7c-fc7a-42ad-880f-3b84c1e70f04', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sessionId: 'debug-session',
-              runId: 'run1',
-              hypothesisId: 'H3',
-              location: 'App.tsx:210',
-              message: 'handleLoadMore invoked',
-              data: {
-                loading: state.loading,
-                loadingMore: state.loadingMore,
-                renderLimit: state.renderLimit,
-                groupsLength: state.groups.length,
-                pagination: state.pagination,
-              },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-        }
-      } catch {
-        // ignore localStorage errors
-      }
-    }
-
     if (state.loadingMore || state.loading) return;
     const nextLimit = Math.min(state.renderLimit + GROUP_BATCH, state.groups.length);
     if (nextLimit > state.renderLimit) {
@@ -367,10 +329,33 @@ function App() {
   };
 
   const handleFeedModeChange = (newFeedMode: boolean) => {
-    setState((prev) => ({
-      ...prev,
-      feedMode: newFeedMode,
-    }));
+    // 预览弹层 -> 独立沉浸页（路由化）
+    if (!newFeedMode) return;
+    setState((prev) => {
+      if (!prev.modal.open) return prev;
+      const group = prev.groups[prev.modal.groupIdx];
+      const item = group?.items?.[prev.modal.itemIdx];
+      if (!item?.dirId || !item.filename) return prev;
+
+      const qs = new URLSearchParams();
+      qs.set('fid', item.dirId);
+      qs.set('fn', item.filename);
+      qs.set('g', String(prev.modal.groupIdx));
+      qs.set('i', String(prev.modal.itemIdx));
+      if (prev.q.trim()) qs.set('q', prev.q.trim());
+      if (prev.activeType && prev.activeType !== '全部') qs.set('type', prev.activeType);
+      if (prev.activeDirId && prev.activeDirId !== 'all') qs.set('dirId', prev.activeDirId);
+      if (prev.activeTag && prev.activeTag.trim()) qs.set('tag', prev.activeTag.trim());
+      if (prev.sortMode) qs.set('sort', prev.sortMode);
+
+      // 先关弹层再跳转（避免残留 body scroll lock 等副作用）
+      queueMicrotask(() => navigate({ pathname: '/feed', search: `?${qs.toString()}` }));
+      return {
+        ...prev,
+        modal: { ...prev.modal, open: false },
+        feedMode: false,
+      };
+    });
   };
 
   const handleModalStep = (delta: number) => {
@@ -439,6 +424,11 @@ function App() {
         q={state.q}
         activeType={state.activeType}
         activeDirId={state.activeDirId}
+        activeTag={state.activeTag}
+        tagStats={state.tagStats}
+        tagStatsLoading={state.tagStatsLoading}
+        tagStatsError={state.tagStatsError}
+        onReloadTags={reloadTags}
         dirs={state.dirs}
         expanded={state.expanded}
         collapsed={state.topbarCollapsed}
@@ -447,8 +437,24 @@ function App() {
         onQChange={(q) => refreshWithOverrides({ q })}
         onTypeChange={(type) => refreshWithOverrides({ activeType: type })}
         onDirChange={(dirId) => refreshWithOverrides({ activeDirId: dirId })}
+        onTagChange={(tag) => refreshWithOverrides({ activeTag: tag })}
         onFeedClick={() => {
-          if (state.groups.length) handleOpenModal(0, 0, true);
+          if (!state.groups.length) return;
+          const g0 = state.groups[0];
+          const idx = getPreferredItemIndex(g0);
+          const item = g0?.items?.[idx >= 0 ? idx : 0];
+          if (!item?.dirId || !item.filename) return;
+          const qs = new URLSearchParams();
+          qs.set('fid', item.dirId);
+          qs.set('fn', item.filename);
+          qs.set('g', '0');
+          qs.set('i', String(idx >= 0 ? idx : 0));
+          if (state.q.trim()) qs.set('q', state.q.trim());
+          if (state.activeType && state.activeType !== '全部') qs.set('type', state.activeType);
+          if (state.activeDirId && state.activeDirId !== 'all') qs.set('dirId', state.activeDirId);
+          if (state.activeTag && state.activeTag.trim()) qs.set('tag', state.activeTag.trim());
+          if (state.sortMode) qs.set('sort', state.sortMode);
+          navigate({ pathname: '/feed', search: `?${qs.toString()}` });
         }}
         onRefresh={() => loadResources({ reset: true })}
         onExpandedChange={(expanded) => {
@@ -493,7 +499,9 @@ function App() {
                       return `groups: ${displayed}/${totalGroups}  |  items: ${Math.min(
                         loadedItems,
                         totalItems
-                      )}/${totalItems}  |  filter: ${state.activeType}  |  q: ${state.q || '-'}`;
+                      )}/${totalItems}  |  filter: ${state.activeType}  |  tag: ${state.activeTag || '-'}  |  q: ${
+                        state.q || '-'
+                      }`;
                     })()}
           </div>
         </div>
@@ -524,6 +532,7 @@ function App() {
             loadingMore={state.loadingMore}
             onLoadMore={handleLoadMore}
             onThumbClick={(groupIdx, itemIdx) => handleOpenModal(groupIdx, itemIdx, false)}
+            onTagClick={(tag) => refreshWithOverrides({ activeTag: tag })}
           />
         )}
       </main>

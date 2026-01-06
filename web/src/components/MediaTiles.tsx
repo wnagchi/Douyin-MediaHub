@@ -108,7 +108,7 @@ export default function MediaTiles({
         >
           {isVideo || data.item.kind === 'image' ? (
             <BaseImage
-              wrapperClassName="w-full"
+              wrapperClassName="w-full block"
               className="w-full block"
               src={escHtml(data.item.thumbUrl ?? data.item.url)}
               alt=""

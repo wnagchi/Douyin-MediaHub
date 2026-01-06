@@ -17,9 +17,10 @@
     "masonic": "^4.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "video-react": "^0.16.0",
+    "react-router-dom": "^6.30.2",
     "sharp": "^0.33.0",
-    "swiper": "^11.1.5"
+    "swiper": "^11.1.5",
+    "video-react": "^0.16.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",

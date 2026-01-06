@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image } from 'antd';
 import { Swiper, SwiperSlide } from 'swiper/react';
-import { Mousewheel, Keyboard } from 'swiper/modules';
-import type { Swiper as SwiperClass } from 'swiper';
 import 'swiper/css';
-import 'swiper/css/mousewheel';
-import 'swiper/css/keyboard';
 import { MediaGroup, deleteMediaItems } from '../api';
 import { escHtml, clamp } from '../utils';
 import { inspectMedia } from '../api';
-import { getPreferredItemIndex } from '../utils/media';
 import BaseVideo from './BaseVideo';
 
 interface PreviewModalProps {
@@ -21,6 +16,7 @@ interface PreviewModalProps {
   onStep: (delta: number) => void;
   onSetItemIdx: (nextIdx: number) => void;
   onGroupStep: (delta: number) => void;
+  onNeedMore?: () => void; // 仅沉浸路由页：触底时提前加载下一页，避免卡在尾部
   onFeedModeChange?: (feedMode: boolean) => void;
   onReload?: () => void;
 }
@@ -34,6 +30,7 @@ export default function PreviewModal({
   onStep,
   onSetItemIdx,
   onGroupStep,
+  onNeedMore,
   onFeedModeChange,
   onReload,
 }: PreviewModalProps) {
@@ -46,13 +43,25 @@ export default function PreviewModal({
   const [imagePreviewCurrent, setImagePreviewCurrent] = useState(0);
   const [deleting, setDeleting] = useState(false);
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
-  const swiperRef = useRef<SwiperClass | null>(null);
-  const lastSlideRef = useRef(groupIdx);
   const lastItemIdxRef = useRef(itemIdx);
   const modalRef = useRef<HTMLDivElement>(null);
   const bodyScrollYRef = useRef<number>(0);
   const thumbStripRef = useRef<HTMLDivElement>(null);
   const suppressNextClickRef = useRef(false);
+  const groupSwipeRef = useRef<{
+    active: boolean;
+    pointerId: number | null;
+    startX: number;
+    startY: number;
+    startTime: number;
+  }>({
+    active: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    startTime: 0,
+  });
+  const wheelLockRef = useRef(0);
   const swipeRef = useRef<{
     active: boolean;
     pointerId: number | null;
@@ -128,18 +137,18 @@ export default function PreviewModal({
     if (!modal) return;
 
     const handleWheel = (e: WheelEvent) => {
-      // 如果事件发生在 Swiper 容器内，允许 Swiper 处理
+      // 如果事件发生在可交互容器内，允许其处理
       const target = e.target as HTMLElement;
-      const isInSwiper = target.closest('.feedSwiper, .itemSwiper');
-      if (!isInSwiper) {
+      const allow = target.closest('.itemSwiper');
+      if (!allow) {
         e.preventDefault();
       }
     };
 
     const handleTouchMove = (e: TouchEvent) => {
       const target = e.target as HTMLElement;
-      const isInSwiper = target.closest('.feedSwiper, .itemSwiper');
-      if (!isInSwiper) {
+      const allow = target.closest('.itemSwiper');
+      if (!allow) {
         e.preventDefault();
       }
     };
@@ -236,6 +245,15 @@ export default function PreviewModal({
 
     return () => {
       v.pause();
+      // iOS Safari 在频繁切换视频时容易累积媒体资源；主动断开 src 以帮助释放内存
+      try {
+        v.removeAttribute('src');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (v as any).srcObject = null;
+        v.load();
+      } catch {
+        // ignore
+      }
       v.removeEventListener('error', handleError);
       v.removeEventListener('loadedmetadata', handleLoadedMetadata);
       v.removeEventListener('play', handlePlay);
@@ -355,13 +373,52 @@ export default function PreviewModal({
     lastItemIdxRef.current = clampedIdx;
   }, [clampedIdx]);
 
-  useEffect(() => {
-    if (!feedMode || !swiperRef.current) return;
-    if (swiperRef.current.activeIndex !== groupIdx) {
-      swiperRef.current.slideTo(groupIdx, 0);
-      lastSlideRef.current = groupIdx;
+  const handleFeedPointerDown = (e: React.PointerEvent) => {
+    if (!feedMode) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const btn = (e as any).button;
+    if (typeof btn === 'number' && btn !== 0) return;
+    groupSwipeRef.current = {
+      active: true,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startTime: Date.now(),
+    };
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    } catch {
+      // ignore
     }
-  }, [feedMode, groupIdx]);
+  };
+
+  const handleFeedPointerUp = (e: React.PointerEvent) => {
+    if (!feedMode) return;
+    const s = groupSwipeRef.current;
+    if (!s.active || s.pointerId !== e.pointerId) return;
+    groupSwipeRef.current.active = false;
+    groupSwipeRef.current.pointerId = null;
+
+    const dx = e.clientX - s.startX;
+    const dy = e.clientY - s.startY;
+    const dt = Date.now() - s.startTime;
+    if (dt < 900 && Math.abs(dy) >= 60 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+      onGroupStep(dy < 0 ? 1 : -1);
+      onNeedMore?.();
+    }
+  };
+
+  const handleFeedWheel = (e: React.WheelEvent) => {
+    if (!feedMode) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('.itemSwiper')) return;
+    const now = Date.now();
+    if (now - wheelLockRef.current < 450) return;
+    if (Math.abs(e.deltaY) < 20) return;
+    wheelLockRef.current = now;
+    onGroupStep(e.deltaY > 0 ? 1 : -1);
+    onNeedMore?.();
+  };
 
   const handleVideoClick = () => {
     if (!videoEl) return;
@@ -538,24 +595,73 @@ export default function PreviewModal({
         }
       }
     } else if (media.kind === 'image') {
-      mediaElement = (
-        <Image
-          src={media.url}
-          alt={media.filename}
-          // 预览使用 PreviewGroup 的 items（见下方），在预览层内可左右切换其它图片并联动主视图
-          preview={imageUrls.length > 1 ? false : {
-            zIndex: 2000,
-            mask: '点击预览',
-            onOpenChange: (open) => setImagePreviewOpen(open),
-          }}
-          className="modalImage"
-          classNames={{ image: 'modalImageImg' }}
-          styles={{
-            root: { width: '100%', display: 'grid', placeItems: 'center' },
-            image: { maxWidth: '100%', maxHeight: 'calc(100vh - 220px)', objectFit: 'contain' },
-          }}
-        />
-      );
+      // 沉浸模式：iOS 对大量原图解码非常敏感（会杀页/重载）。
+      // 策略：DOM 只挂当前 item 的原图，其余 item 用 thumb；同时后台预取左右各 1 张原图。
+
+      if (feedMode) {
+        const src = isActive ? media.url : media.thumbUrl ?? media.url;
+        const loading: 'eager' | 'lazy' = isActive ? 'eager' : 'lazy';
+        mediaElement = (
+          <img
+            key={`feed-img-${groupIdx}-${currentIdx}`}
+            src={src}
+            alt={media.filename}
+            loading={loading}
+            decoding="async"
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              background: '#000',
+              display: 'block',
+            }}
+          />
+        );
+      } else if (!isActive) {
+        // iOS Safari 容易因内存压力导致页面被系统回收/重载：非激活 slide 不渲染原图（预览模式）
+        const src = media.thumbUrl ?? media.url;
+        mediaElement = (
+          <img
+            key={`preview-img-${groupIdx}-${currentIdx}`}
+            src={src}
+            alt={media.filename}
+            loading="lazy"
+            decoding="async"
+            style={{
+              maxWidth: '100%',
+              maxHeight: 'calc(100vh - 220px)',
+              objectFit: 'contain',
+              borderRadius: 14,
+              border: '1px solid rgba(255,255,255,.10)',
+              background: '#000',
+              display: 'block',
+            }}
+          />
+        );
+      } else {
+        mediaElement = (
+          <Image
+            src={media.url}
+            alt={media.filename}
+            // 预览使用 PreviewGroup 的 items（见下方），在预览层内可左右切换其它图片并联动主视图
+            preview={
+              imageUrls.length > 1
+                ? false
+                : {
+                    zIndex: 2000,
+                    mask: '点击预览',
+                    onOpenChange: (open) => setImagePreviewOpen(open),
+                  }
+            }
+            className="modalImage"
+            classNames={{ image: 'modalImageImg' }}
+            styles={{
+              root: { width: '100%', display: 'grid', placeItems: 'center' },
+              image: { maxWidth: '100%', maxHeight: 'calc(100vh - 220px)', objectFit: 'contain' },
+            }}
+          />
+        );
+      }
     } else {
       mediaElement = (
         <a href={media.url} className="btn">
@@ -569,7 +675,7 @@ export default function PreviewModal({
         {mediaElement}
         {feedMode && isActive && (
           <div className="feedOverlay">
-            <div className="feedTitle">
+            <div className="feedTitle pmFeedTitle">
               {escHtml(`${targetGroup.author || ''}  ${targetGroup.theme || ''}`.trim() || targetGroup.theme || media.filename)}
             </div>
             <div className="feedSub">
@@ -583,29 +689,18 @@ export default function PreviewModal({
     );
   };
 
-  const renderInactiveSlide = (targetGroup: MediaGroup) => {
-    const previewIdx = getPreferredItemIndex(targetGroup);
-    return (
-      <>
-        {renderMedia(targetGroup, previewIdx, false)}
-        <div className="feedOverlay">
-          <div className="feedTitle">
-            {escHtml(`${targetGroup.author || ''}  ${targetGroup.theme || ''}`.trim() || targetGroup.theme || '预览')}
-          </div>
-          <div className="feedSub">
-            {escHtml(`${targetGroup.timeText || ''} | ${targetGroup.groupType || ''} | ${targetGroup.items?.length || 0} 条目`)}
-          </div>
-        </div>
-      </>
-    );
-  };
+  // 单 group 模式：只渲染当前 group（上下切换通过手势触发数据切换），不再需要 inactive/far 的 slide 渲染
 
   const renderFeedActiveSlide = () => {
     if (items.length <= 1) return renderMedia(group, clampedIdx, true);
     return (
       <Swiper
+        key={`item-swiper-${groupIdx}`}
         direction="horizontal"
         nested
+        observer
+        observeParents
+        observeSlideChildren
         slidesPerView={1}
         initialSlide={clampedIdx}
         className="itemSwiper"
@@ -635,44 +730,16 @@ export default function PreviewModal({
     return renderMedia(group, clampedIdx, true);
   };
 
-  const feedSwiper = (
-    <Swiper
-      direction="vertical"
-      slidesPerView={1}
-      modules={[Mousewheel, Keyboard]}
-      mousewheel={{
-        forceToAxis: true,
-        releaseOnEdges: false,
-        sensitivity: 1,
-      }}
-      keyboard={{ enabled: true }}
-      initialSlide={groupIdx}
-      onSwiper={(instance) => {
-        swiperRef.current = instance;
-        lastSlideRef.current = instance.activeIndex;
-      }}
-      onSlideChange={(instance) => {
-        const prev = lastSlideRef.current;
-        const next = instance.activeIndex;
-        if (next > prev) {
-          onGroupStep(1);
-        } else if (next < prev) {
-          onGroupStep(-1);
-        }
-        lastSlideRef.current = next;
-      }}
-      className="feedSwiper"
+  const feedBody = (
+    <div
+      className="feedOneGroup"
+      onPointerDown={handleFeedPointerDown}
+      onPointerUp={handleFeedPointerUp}
+      onPointerCancel={handleFeedPointerUp}
+      onWheel={handleFeedWheel}
     >
-      {groups.map((g, idx) => (
-        <SwiperSlide key={`group-${idx}`}>
-          {idx === groupIdx ? (
-            <div className="feedSlide active">{renderFeedActiveSlide()}</div>
-          ) : (
-            <div className="feedSlide inactive">{renderInactiveSlide(g)}</div>
-          )}
-        </SwiperSlide>
-      ))}
-    </Swiper>
+      <div className="feedSlide active">{renderFeedActiveSlide()}</div>
+    </div>
   );
 
   return (
@@ -683,10 +750,46 @@ export default function PreviewModal({
       aria-modal="true"
       aria-label="预览"
     >
+      {/* Mobile typography fixes: long titles/hints should not break layout */}
+      <style>
+        {`
+          @media (max-width: 520px){
+            .pmTitle{
+              white-space: normal !important;
+              overflow: hidden !important;
+              text-overflow: ellipsis !important;
+              display: -webkit-box !important;
+              -webkit-box-orient: vertical !important;
+              -webkit-line-clamp: 2 !important;
+              line-height: 1.35 !important;
+            }
+            .pmTop{
+              align-items: flex-start !important;
+            }
+            .pmHint{
+              white-space: normal !important;
+              overflow: hidden !important;
+              text-overflow: ellipsis !important;
+              display: -webkit-box !important;
+              -webkit-box-orient: vertical !important;
+              -webkit-line-clamp: 2 !important;
+              word-break: break-all !important;
+            }
+            .pmFeedTitle{
+              overflow: hidden !important;
+              text-overflow: ellipsis !important;
+              display: -webkit-box !important;
+              -webkit-box-orient: vertical !important;
+              -webkit-line-clamp: 2 !important;
+              word-break: break-word !important;
+            }
+          }
+        `}
+      </style>
       <div className="modalBackdrop" onClick={onClose}></div>
       <div className="modalPanel">
-        <div className="modalTop">
-          <div className="modalTitle">{escHtml(title || item.filename)}</div>
+        <div className="modalTop pmTop">
+          <div className="modalTitle pmTitle">{escHtml(title || item.filename)}</div>
           <div className="modalBtns">
             {onFeedModeChange && (
               <button
@@ -764,7 +867,7 @@ export default function PreviewModal({
           ) : (
             // 单张图片或非图集：保持原行为（图片单独预览 / 视频播放）
             (feedMode ? (
-              feedSwiper
+              feedBody
             ) : (
               <div
                 className="modalBodyInner"
@@ -815,7 +918,7 @@ export default function PreviewModal({
               </div>
             )}
             <div className="modalBottomRow">
-              <div className="modalHint">
+              <div className="modalHint pmHint">
                 {hint}
                 {warnExtra && `  |  ${escHtml(warnExtra)}`}
               </div>

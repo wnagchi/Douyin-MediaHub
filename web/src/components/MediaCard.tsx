@@ -11,10 +11,11 @@ interface MediaCardProps {
   expanded?: boolean;
   wrapperClassName?: string;
   onThumbClick: (groupIdx: number, itemIdx: number) => void;
+  onTagClick?: (tag: string) => void;
 }
 
 function fmtGroupTitle(g: MediaGroup): string {
-  return g.theme || '(无主题)';
+  return g.themeText || g.theme || '(无主题)';
 }
 
 function typeClass(t: string): string {
@@ -43,9 +44,13 @@ export default function MediaCard({
   expanded: _expanded = false,
   wrapperClassName,
   onThumbClick,
+  onTagClick,
 }: MediaCardProps) {
   const title = fmtGroupTitle(group);
   const tags = typeTags(group);
+  const hashTagsRaw = Array.isArray(group.tags) ? group.tags : [];
+  const hashTags = hashTagsRaw.slice(0, 10);
+  const hashTagsMore = Math.max(0, hashTagsRaw.length - hashTags.length);
   const items = Array.isArray(group.items) ? group.items : [];
   const first = items[0] || null;
   const firstIsVideo = first?.kind === 'video';
@@ -97,6 +102,52 @@ export default function MediaCard({
           </span>
         ))}
       </div>
+      {hashTags.length > 0 && (
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          {hashTags.map((t) => {
+            const label = `#${t}`;
+            return (
+              <button
+                key={`ht-${t}`}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTagClick?.(label);
+                }}
+                style={{
+                  display: 'inline-block',
+                  padding: '2px 8px',
+                  fontSize: '11px',
+                  borderRadius: '999px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  color: 'rgba(255,255,255,0.85)',
+                  border: '1px solid rgba(255,255,255,0.10)',
+                  cursor: onTagClick ? 'pointer' : 'default',
+                }}
+                title={`点击筛选：${label}`}
+              >
+                {label}
+              </button>
+            );
+          })}
+          {hashTagsMore > 0 && (
+            <span
+              key="ht-more"
+              style={{
+                display: 'inline-block',
+                padding: '2px 8px',
+                fontSize: '11px',
+                borderRadius: '999px',
+                backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                color: 'rgba(255,255,255,0.7)',
+              }}
+              title={`还有 ${hashTagsMore} 个标签`}
+            >
+              +{hashTagsMore}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 
