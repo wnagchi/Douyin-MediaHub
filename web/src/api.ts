@@ -6,12 +6,16 @@ export interface MediaDir {
 }
 
 export interface MediaItem {
-  kind: 'video' | 'image' | 'other';
+  // 后端实际会返回 kind='file'（无法识别类型时），这里兼容一下
+  kind: 'video' | 'image' | 'other' | 'file';
   filename: string;
   url: string;
   thumbUrl?: string;
   dirId?: string;
   seq?: number;
+  // 某些场景（如发布者卡片）会返回最新条目的时间信息
+  timeText?: string;
+  timestampMs?: number;
 }
 
 export interface MediaGroup {
@@ -144,6 +148,8 @@ export interface AuthorStat {
   groupCount: number;
   itemCount: number;
   latestTimestampMs?: number;
+  // 后端补充：该作者在当前筛选条件下的最新条目（用于移动端“封面卡片”）
+  latestItem?: MediaItem;
 }
 
 export interface AuthorsResponse {

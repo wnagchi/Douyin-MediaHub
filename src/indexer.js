@@ -10,6 +10,35 @@ const { dirExists } = require("./utils/fs");
 const { createThumbGenerator } = require("./thumbs");
 const { createVideoThumbGenerator } = require("./videoThumbs");
 
+async function listFilesRecursive(rootAbs) {
+  // Return relative paths (POSIX style: forward slashes) of all files under rootAbs.
+  // Skip dot-files and dot-directories at any level.
+  const out = [];
+  /** @type {{abs:string, rel:string}[]} */
+  const stack = [{ abs: rootAbs, rel: "" }];
+  while (stack.length) {
+    const cur = stack.pop();
+    let entries = [];
+    try {
+      entries = await fsp.readdir(cur.abs, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      const name = e?.name || "";
+      if (!name || name.startsWith(".")) continue;
+      const absChild = path.join(cur.abs, name);
+      const relChild = cur.rel ? `${cur.rel}/${name}` : name;
+      if (e.isDirectory()) {
+        stack.push({ abs: absChild, rel: relChild });
+        continue;
+      }
+      if (e.isFile()) out.push(relChild);
+    }
+  }
+  return out;
+}
+
 function sha1Hex(s) {
   return crypto.createHash("sha1").update(String(s)).digest("hex");
 }
@@ -37,6 +66,7 @@ function createIndexer({ rootDir, mediaStore }) {
   const dbPath = process.env.INDEX_DB_PATH
     ? path.resolve(process.env.INDEX_DB_PATH)
     : path.join(dataDir, "index.sqlite");
+  const useDirMtimeOptimization = String(process.env.INDEX_DIR_MTIME_OPT || "0").trim() === "1";
 
   /** @type {DatabaseSync | null} */
   let db = null;
@@ -151,6 +181,22 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
         return { ok: true, scannedDirs: 0, skippedDirs: 0, added: 0, updated: 0, deleted: 0, durationMs: nowMs() - start };
       }
 
+      // 清理：如果用户修改了 config.json（移除了某些 mediaDir），旧的 dirId 数据会残留在 DB，
+      // UI 仍可能引用这些条目，导致 /media|/thumb|/vthumb 请求出现 “Dir not found”。
+      // 这里将不在当前配置中的 dirId 的索引数据直接删除。
+      try {
+        const keepIds = dirs.map((d) => d.id).filter(Boolean);
+        if (keepIds.length) {
+          const ph = keepIds.map(() => "?").join(",");
+          db.prepare(`DELETE FROM media_items WHERE dirId NOT IN (${ph})`).run(...keepIds);
+          db.prepare(`DELETE FROM media_item_types WHERE dirId NOT IN (${ph})`).run(...keepIds);
+          db.prepare(`DELETE FROM media_item_tags WHERE dirId NOT IN (${ph})`).run(...keepIds);
+          db.prepare(`DELETE FROM dir_state WHERE dirId NOT IN (${ph})`).run(...keepIds);
+        }
+      } catch {
+        // best-effort cleanup
+      }
+
       const scanRun = start; // stable run id
 
       const upsertDir = db.prepare(
@@ -206,30 +252,24 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
         }
         const prev = getDir.get(dir.id);
         const dirMtimeMs = st?.mtimeMs ?? null;
-        const shouldScan = force || !prev || prev.dirMtimeMs !== dirMtimeMs;
+        // 递归扫描时：目录 mtime 无法可靠反映子目录/文件变化（尤其是深层新增/删除），
+        // 因此默认禁用该优化，保证能发现子文件夹里的变更。
+        const shouldScan = force || !useDirMtimeOptimization || !prev || prev.dirMtimeMs !== dirMtimeMs;
         if (!shouldScan) {
           skippedDirs++;
           continue;
         }
 
         scannedDirs++;
-        // scan this dir
-        let entries = [];
-        try {
-          entries = await fsp.readdir(dir.path, { withFileTypes: true });
-        } catch {
-          continue;
-        }
-        const files = entries
-          .filter((d) => d.isFile())
-          .map((d) => d.name)
-          .filter((name) => name && !name.startsWith("."));
+        // scan this dir (recursive)
+        const files = await listFilesRecursive(dir.path);
 
         // Mark seenRun for parsed files; leave others untouched
-        for (const name of files) {
-          const p = parseMediaFilename(name);
+        for (const relPath of files) {
+          const baseName = path.basename(relPath);
+          const p = parseMediaFilename(baseName);
           if (!p) continue;
-          const filePath = path.join(dir.path, name);
+          const filePath = path.join(dir.path, relPath);
           let fst;
           try {
             fst = await fsp.stat(filePath);
@@ -237,7 +277,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
             continue;
           }
 
-          const prevStat = getItemStat.get(dir.id, name);
+          const prevStat = getItemStat.get(dir.id, relPath);
           const hasPrev = Boolean(prevStat);
           const changed = !hasPrev || prevStat.mtimeMs !== fst.mtimeMs || prevStat.size !== fst.size;
 
@@ -245,25 +285,25 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
           // NOTE: force=1 的意义除了“强制扫描目录”，还用于回填新增的派生字段（如 tags）。
           // 因此：文件未变化但 force=true 时，也要重建 types/tags（但不要生成缩略图，避免全量耗时）。
           if (!changed) {
-            markSeen.run(scanRun, dir.id, name);
+            markSeen.run(scanRun, dir.id, relPath);
             if (!force) continue;
 
             // refresh types (force backfill)
-            deleteTypesForFile.run(dir.id, name);
+            deleteTypesForFile.run(dir.id, relPath);
             for (const t of p.declaredTypes || []) {
               const tt = normalizeType(t);
               if (!tt) continue;
-              insertType.run(dir.id, name, tt);
+              insertType.run(dir.id, relPath, tt);
             }
 
             // refresh tags (force backfill)
-            deleteTagsForFile.run(dir.id, name);
+            deleteTagsForFile.run(dir.id, relPath);
             const themeText = String(p.theme || "");
             const tags = extractHashtags(themeText, { max: 80 });
             for (const t of tags) {
               const nt = normalizeTagInput(t);
               if (!nt) continue;
-              insertTag.run(dir.id, name, nt);
+              insertTag.run(dir.id, relPath, nt);
             }
             continue;
           }
@@ -274,7 +314,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
           // upsert item
           upsertItem.run(
             dir.id,
-            name,
+            relPath,
             p.ext,
             p.kind,
             p.timeText,
@@ -292,36 +332,36 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
           );
 
           // refresh types
-          deleteTypesForFile.run(dir.id, name);
+          deleteTypesForFile.run(dir.id, relPath);
           for (const t of p.declaredTypes || []) {
             const tt = normalizeType(t);
             if (!tt) continue;
-            insertType.run(dir.id, name, tt);
+            insertType.run(dir.id, relPath, tt);
           }
 
           // refresh tags (from theme/描述中的 #标签)
-          deleteTagsForFile.run(dir.id, name);
+          deleteTagsForFile.run(dir.id, relPath);
           const themeText = String(p.theme || "");
           const tags = extractHashtags(themeText, { max: 80 });
           for (const t of tags) {
             const nt = normalizeTagInput(t);
             if (!nt) continue;
-            insertTag.run(dir.id, name, nt);
+            insertTag.run(dir.id, relPath, nt);
           }
 
           // Generate thumbnail for images
           if (p.kind === "image") {
-            thumbGenerator.generateThumb({ absSourcePath: filePath, dirId: dir.id, filename: name }).catch((e) => {
+            thumbGenerator.generateThumb({ absSourcePath: filePath, dirId: dir.id, filename: relPath }).catch((e) => {
               // eslint-disable-next-line no-console
-              console.warn(`[thumbs] Failed to generate thumb for ${dir.id}/${name}: ${String(e?.message || e)}`);
+              console.warn(`[thumbs] Failed to generate thumb for ${dir.id}/${relPath}: ${String(e?.message || e)}`);
             });
           }
 
           // Generate thumbnail for videos
           if (p.kind === "video") {
-            videoThumbGenerator.generateThumb({ absVideoPath: filePath, dirId: dir.id, filename: name }).catch((e) => {
+            videoThumbGenerator.generateThumb({ absVideoPath: filePath, dirId: dir.id, filename: relPath }).catch((e) => {
               // eslint-disable-next-line no-console
-              console.warn(`[vthumbs] Failed to generate thumb for ${dir.id}/${name}: ${String(e?.message || e)}`);
+              console.warn(`[vthumbs] Failed to generate thumb for ${dir.id}/${relPath}: ${String(e?.message || e)}`);
             });
           }
         }
@@ -607,20 +647,90 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     const pageClamped = Math.min(Math.max(1, safePage), totalPages);
     const offset = (pageClamped - 1) * safeSize;
 
-    const rows = db
-      .prepare(
-        `SELECT
-           COALESCE(mi.author,'') AS author,
-           COUNT(DISTINCT (COALESCE(mi.timeText,'') || '|' || COALESCE(mi.author,'') || '|' || COALESCE(mi.theme,''))) AS groupCount,
-           COUNT(*) AS itemCount,
-           MAX(COALESCE(mi.timestampMs, 0)) AS latestTimestampMs
-         FROM media_items mi
-         ${whereSql}
-         GROUP BY COALESCE(mi.author,'')
-         ORDER BY groupCount DESC, itemCount DESC, latestTimestampMs DESC, author ASC
-         LIMIT :limit OFFSET :offset`
-      )
-      .all({ ...params, limit: safeSize, offset });
+    /** @type {any[]} */
+    let rows = [];
+    try {
+      // 带“最新条目”字段：用于移动端发布者卡片封面
+      // 注：使用 window function（ROW_NUMBER）。如果用户机器上的 SQLite 版本过老，会自动降级到统计版查询。
+      rows = db
+        .prepare(
+          `WITH filtered AS (
+             SELECT
+               mi.*,
+               COALESCE(mi.author,'') AS authorKey
+             FROM media_items mi
+             ${whereSql}
+           ),
+           agg AS (
+             SELECT
+               authorKey,
+               COUNT(DISTINCT (COALESCE(timeText,'') || '|' || COALESCE(author,'') || '|' || COALESCE(theme,''))) AS groupCount,
+               COUNT(*) AS itemCount,
+               MAX(COALESCE(timestampMs, 0)) AS latestTimestampMs
+             FROM filtered
+             GROUP BY authorKey
+           ),
+           latest AS (
+             SELECT
+               authorKey,
+               dirId,
+               filename,
+               kind,
+               ext,
+               timeText,
+               COALESCE(timestampMs, 0) AS timestampMs
+             FROM (
+               SELECT
+                 authorKey,
+                 dirId,
+                 filename,
+                 kind,
+                 ext,
+                 timeText,
+                 timestampMs,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY authorKey
+                   ORDER BY COALESCE(timestampMs, 0) DESC, COALESCE(timeText,'') DESC, filename DESC
+                 ) AS rn
+               FROM filtered
+             )
+             WHERE rn = 1
+           )
+           SELECT
+             agg.authorKey AS author,
+             agg.groupCount,
+             agg.itemCount,
+             agg.latestTimestampMs,
+             latest.dirId AS latestDirId,
+             latest.filename AS latestFilename,
+             latest.kind AS latestKind,
+             latest.ext AS latestExt,
+             latest.timeText AS latestTimeText,
+             latest.timestampMs AS latestItemTimestampMs
+           FROM agg
+           LEFT JOIN latest
+             ON latest.authorKey = agg.authorKey
+           ORDER BY agg.groupCount DESC, agg.itemCount DESC, agg.latestTimestampMs DESC, agg.authorKey ASC
+           LIMIT :limit OFFSET :offset`
+        )
+        .all({ ...params, limit: safeSize, offset });
+    } catch {
+      // 降级：仅统计（保持旧行为，避免接口整体不可用）
+      rows = db
+        .prepare(
+          `SELECT
+             COALESCE(mi.author,'') AS author,
+             COUNT(DISTINCT (COALESCE(mi.timeText,'') || '|' || COALESCE(mi.author,'') || '|' || COALESCE(mi.theme,''))) AS groupCount,
+             COUNT(*) AS itemCount,
+             MAX(COALESCE(mi.timestampMs, 0)) AS latestTimestampMs
+           FROM media_items mi
+           ${whereSql}
+           GROUP BY COALESCE(mi.author,'')
+           ORDER BY groupCount DESC, itemCount DESC, latestTimestampMs DESC, author ASC
+           LIMIT :limit OFFSET :offset`
+        )
+        .all({ ...params, limit: safeSize, offset });
+    }
 
     return {
       ok: true,
@@ -629,6 +739,30 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
         groupCount: Number(r.groupCount) || 0,
         itemCount: Number(r.itemCount) || 0,
         latestTimestampMs: Number(r.latestTimestampMs) || 0,
+        latestItem:
+          r.latestDirId && r.latestFilename
+            ? (() => {
+                const dirId = String(r.latestDirId);
+                const filename = String(r.latestFilename);
+                const kind = String(r.latestKind || "");
+                const item = {
+                  dirId,
+                  filename,
+                  url: `/media/${encodeURIComponent(dirId)}/${encodeURIComponent(filename)}`,
+                  kind: kind || "file",
+                  // best-effort: 供前端展示
+                  timeText: r.latestTimeText == null ? undefined : String(r.latestTimeText),
+                  timestampMs: r.latestItemTimestampMs == null ? undefined : Number(r.latestItemTimestampMs) || 0,
+                };
+                if (kind === "image") {
+                  item.thumbUrl = `/thumb/${encodeURIComponent(dirId)}/${encodeURIComponent(filename)}`;
+                }
+                if (kind === "video") {
+                  item.thumbUrl = `/vthumb/${encodeURIComponent(dirId)}/${encodeURIComponent(filename)}`;
+                }
+                return item;
+              })()
+            : undefined,
       })),
       pagination: {
         page: pageClamped,

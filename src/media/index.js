@@ -140,23 +140,34 @@ async function scanMedia(mediaDirs) {
   const parsed = [];
 
   for (const dir of mediaDirs) {
-    let entries = [];
-    try {
-      entries = await fsp.readdir(dir.path, { withFileTypes: true });
-    } catch (e) {
-      if (e && e.code === "ENOENT") continue;
-      continue;
-    }
+    // recursive scan
+    /** @type {{abs:string, rel:string}[]} */
+    const stack = [{ abs: dir.path, rel: "" }];
+    while (stack.length) {
+      const cur = stack.pop();
+      let entries = [];
+      try {
+        entries = await fsp.readdir(cur.abs, { withFileTypes: true });
+      } catch (e) {
+        if (e && e.code === "ENOENT") continue;
+        continue;
+      }
 
-    const files = entries
-      .filter((d) => d.isFile())
-      .map((d) => d.name)
-      .filter((name) => !name.startsWith("."));
+      for (const ent of entries) {
+        const name = ent?.name || "";
+        if (!name || name.startsWith(".")) continue;
+        const absChild = path.join(cur.abs, name);
+        const relChild = cur.rel ? `${cur.rel}/${name}` : name;
+        if (ent.isDirectory()) {
+          stack.push({ abs: absChild, rel: relChild });
+          continue;
+        }
+        if (!ent.isFile()) continue;
 
-    for (const name of files) {
-      const p = parseMediaFilename(name);
+        const p = parseMediaFilename(path.basename(relChild));
       if (!p) continue;
-      parsed.push({ ...p, dirId: dir.id, dirLabel: dir.label });
+        parsed.push({ ...p, filename: relChild, dirId: dir.id, dirLabel: dir.label });
+      }
     }
   }
 

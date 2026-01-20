@@ -1049,6 +1049,100 @@ body.immersiveRoute{
   overflow: auto;
   flex: 1 1 auto;
 }
+.publisherAuthorGrid{
+  padding: 10px;
+  overflow: auto;
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.publisherAuthorCard{
+  width: 100%;
+  padding: 0;
+  text-align: left;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  color: rgba(255,255,255,.88);
+  border-radius: 16px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease;
+}
+.publisherAuthorCard:hover{
+  transform: translateY(-1px);
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.16);
+}
+.publisherAuthorCard.active{
+  background: rgba(64, 160, 255, .16);
+  border-color: rgba(64, 160, 255, .28);
+}
+.publisherAuthorCardCover{
+  position: relative;
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  background: rgba(0,0,0,.35);
+}
+.publisherAuthorCardCoverImg{
+  width: 100%;
+  height: 100%;
+}
+.publisherAuthorCardCoverImgEl{
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.publisherAuthorCardCoverEmpty{
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: rgba(255,255,255,.55);
+  font-size: 12px;
+}
+.publisherAuthorCardOverlay{
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 10px;
+  background: linear-gradient(180deg, rgba(0,0,0,0) 55%, rgba(0,0,0,.35) 100%);
+  pointer-events: none;
+}
+.publisherAuthorCardPlay{
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(0,0,0,.55);
+  border: 1px solid rgba(255,255,255,.18);
+  color: rgba(255,255,255,.92);
+  font-size: 14px;
+  backdrop-filter: blur(10px);
+}
+.publisherAuthorCardBody{
+  padding: 10px 10px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.publisherAuthorCardName{
+  font-weight: 800;
+  color: rgba(255,255,255,.92);
+  font-size: 13px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.publisherAuthorCardMeta{
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
 .publisherAuthorRow{
   width: 100%;
   display:flex;
@@ -1160,6 +1254,12 @@ body.immersiveRoute{
   }
   .publisherMainActions .btn{ padding: 10px 12px; }
   .publisherFilterPill{ padding: 4px 8px; }
+}
+@media (max-width: 520px){
+  .publisherAuthorGrid{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
 }
 .feedSlide img,
 .feedSlide .ant-image-img,

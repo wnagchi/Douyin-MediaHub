@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AuthorStat, FetchResourcesParams, MediaGroup, PaginationInfo } from '../api';
 import { fetchAuthors, fetchResources } from '../api';
+import BaseImage from './BaseImage';
 import MediaGrid from './MediaGrid';
 import PreviewModal from './PreviewModal';
 import { getPreferredItemIndex } from '../utils/media';
@@ -330,16 +331,59 @@ export default function PublisherView({
           <div className="publisherEmpty">暂无发布者数据（可能需要先执行一次索引更新 /api/reindex）。</div>
         )}
 
-        <div className="publisherAuthorList">
+        <div className={isNarrow ? 'publisherAuthorGrid' : 'publisherAuthorList'}>
           {authors.map((a) => {
             const label = fmtAuthorLabel(a.author);
             const isActive = selectedAuthor === a.author;
+            const coverSrc = a.latestItem?.thumbUrl || a.latestItem?.url || '';
+            const isVideo = a.latestItem?.kind === 'video';
+            const hasCover = Boolean(coverSrc);
+
+            // 移动端：卡片（账号名 + 最新封面）；PC 维持原“行列表”体验
+            if (isNarrow) {
+              return (
+                <button
+                  key={`author-${a.author}`}
+                  className={`publisherAuthorCard ${isActive ? 'active' : ''}`}
+                  onClick={() => setSelectedAuthor(a.author)}
+                  title={`${label} | groups=${a.groupCount} items=${a.itemCount}`}
+                  type="button"
+                >
+                  <div className="publisherAuthorCardCover">
+                    {hasCover ? (
+                      <BaseImage
+                        src={coverSrc}
+                        alt={label}
+                        wrapperClassName="publisherAuthorCardCoverImg"
+                        className="publisherAuthorCardCoverImgEl"
+                        imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        showSkeleton={true}
+                      />
+                    ) : (
+                      <div className="publisherAuthorCardCoverEmpty">暂无封面</div>
+                    )}
+                    <div className="publisherAuthorCardOverlay" aria-hidden="true">
+                      {isVideo && <span className="publisherAuthorCardPlay">▶</span>}
+                    </div>
+                  </div>
+                  <div className="publisherAuthorCardBody">
+                    <div className="publisherAuthorCardName">{label}</div>
+                    <div className="publisherAuthorCardMeta">
+                      <span className="chip mini">{a.groupCount}g</span>
+                      <span className="chip mini">{a.itemCount}i</span>
+                    </div>
+                  </div>
+                </button>
+              );
+            }
+
             return (
               <button
                 key={`author-${a.author}`}
                 className={`publisherAuthorRow ${isActive ? 'active' : ''}`}
                 onClick={() => setSelectedAuthor(a.author)}
                 title={`${label} | groups=${a.groupCount} items=${a.itemCount}`}
+                type="button"
               >
                 <div className="publisherAuthorName">{label}</div>
                 <div className="publisherAuthorCounts">
