@@ -437,8 +437,9 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     }
 
     if (qFilter) {
+      // SQLite 要求 ESCAPE 只能是单字符；这里用反斜杠作为转义符
       where.push(
-        `LOWER(COALESCE(mi.author,'') || ' ' || COALESCE(mi.theme,'') || ' ' || COALESCE(mi.timeText,'') || ' ' || COALESCE(mi.typeText,'')) LIKE :q ESCAPE '\\\\'`
+        `LOWER(COALESCE(mi.author,'') || ' ' || COALESCE(mi.theme,'') || ' ' || COALESCE(mi.timeText,'') || ' ' || COALESCE(mi.typeText,'')) LIKE :q ESCAPE '\\'`
       );
       params.q = `%${toSafeLike(qFilter)}%`;
     }
@@ -626,7 +627,8 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
 
     // authors 列表的 q：只匹配发布者字段（更符合“按发布者查看”，也更便宜）
     if (qFilter) {
-      where.push(`LOWER(COALESCE(mi.author,'')) LIKE :q ESCAPE '\\\\'`);
+      // SQLite 要求 ESCAPE 只能是单字符；这里用反斜杠作为转义符
+      where.push(`LOWER(COALESCE(mi.author,'')) LIKE :q ESCAPE '\\'`);
       params.q = `%${toSafeLike(qFilter)}%`;
     }
 
@@ -789,7 +791,8 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     }
     if (qFilter) {
       // tags are stored normalized to lower-case
-      where.push(`mit.tag LIKE :q ESCAPE '\\\\'`);
+      // SQLite 要求 ESCAPE 只能是单字符；这里用反斜杠作为转义符
+      where.push(`mit.tag LIKE :q ESCAPE '\\'`);
       params.q = `%${toSafeLike(normalizeTagInput(qFilter))}%`;
     }
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";

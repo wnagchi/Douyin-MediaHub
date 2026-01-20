@@ -1053,9 +1053,8 @@ body.immersiveRoute{
   padding: 10px;
   overflow: auto;
   flex: 1 1 auto;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  /* 这里用于承载 antd Masonry：必须是 block 容器，不能是 grid（否则 Masonry 只会占到一列宽度） */
+  display: block;
 }
 .publisherAuthorCard{
   width: 100%;
@@ -1081,21 +1080,21 @@ body.immersiveRoute{
 .publisherAuthorCardCover{
   position: relative;
   width: 100%;
-  aspect-ratio: 9 / 16;
+  /* 不固定比例：让图片决定高度，瀑布流才明显 */
   background: rgba(0,0,0,.35);
 }
 .publisherAuthorCardCoverImg{
   width: 100%;
-  height: 100%;
+  height: auto;
 }
 .publisherAuthorCardCoverImgEl{
   width: 100%;
-  height: 100%;
+  height: auto;
   display: block;
 }
 .publisherAuthorCardCoverEmpty{
   width: 100%;
-  height: 100%;
+  min-height: 220px;
   display: grid;
   place-items: center;
   color: rgba(255,255,255,.55);
@@ -1136,7 +1135,11 @@ body.immersiveRoute{
   line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-word;
 }
 .publisherAuthorCardMeta{
   display: flex;
@@ -1255,12 +1258,7 @@ body.immersiveRoute{
   .publisherMainActions .btn{ padding: 10px 12px; }
   .publisherFilterPill{ padding: 4px 8px; }
 }
-@media (max-width: 520px){
-  .publisherAuthorGrid{
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-  }
-}
+/* publisherAuthorGrid 由 Masonry 控制列数/间距，无需额外 media query */
 .feedSlide img,
 .feedSlide .ant-image-img,
 .feedSlide video,

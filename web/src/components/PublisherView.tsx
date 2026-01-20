@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Card, Masonry } from 'antd';
 import type { AuthorStat, FetchResourcesParams, MediaGroup, PaginationInfo } from '../api';
 import { fetchAuthors, fetchResources } from '../api';
 import BaseImage from './BaseImage';
@@ -305,9 +306,16 @@ export default function PublisherView({
   const showDetail = !isNarrow || selectedAuthor != null;
 
   return (
-    <div className="publisherLayout">
+    <div
+      className="publisherLayout"
+      // 某些移动端 WebView 可能对媒体查询/布局视口有差异：这里在“窄屏”时强制单列布局，避免出现“只占半屏”的情况
+      style={isNarrow ? ({ flexDirection: 'column', gap: 12 } as any) : undefined}
+    >
       {showList && (
-        <aside className="publisherSidebar">
+        <aside
+          className="publisherSidebar"
+          style={isNarrow ? ({ width: '100%', flex: '0 0 auto' } as any) : undefined}
+        >
         <div className="publisherSidebarHeader">
           <div className="publisherSidebarTitle">按发布者</div>
           <div className="publisherSidebarMeta">{authorMeta}</div>
@@ -331,70 +339,105 @@ export default function PublisherView({
           <div className="publisherEmpty">暂无发布者数据（可能需要先执行一次索引更新 /api/reindex）。</div>
         )}
 
-        <div className={isNarrow ? 'publisherAuthorGrid' : 'publisherAuthorList'}>
-          {authors.map((a) => {
-            const label = fmtAuthorLabel(a.author);
-            const isActive = selectedAuthor === a.author;
-            const coverSrc = a.latestItem?.thumbUrl || a.latestItem?.url || '';
-            const isVideo = a.latestItem?.kind === 'video';
-            const hasCover = Boolean(coverSrc);
+        {isNarrow ? (
+          <div className="publisherAuthorGrid">
+            <Masonry
+              columns={{ xs: 2, sm: 3, md: 4 }}
+              gutter={{ xs: 12, md: 16 }}
+              fresh
+              items={authors.map((a) => {
+                const label = fmtAuthorLabel(a.author);
+                const isActive = selectedAuthor === a.author;
+                const coverSrc = a.latestItem?.thumbUrl || a.latestItem?.url || '';
+                const isVideo = a.latestItem?.kind === 'video';
+                const hasCover = Boolean(coverSrc);
 
-            // 移动端：卡片（账号名 + 最新封面）；PC 维持原“行列表”体验
-            if (isNarrow) {
+                return {
+                  key: `author-${a.author}`,
+                  data: a,
+                  children: (
+                    <Card
+                      hoverable
+                      className={`publisherAuthorCard ${isActive ? 'active' : ''}`}
+                      style={{
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: 16,
+                        overflow: 'hidden',
+                      }}
+                      styles={{ body: { padding: 10, backgroundColor: 'transparent' } }}
+                      cover={
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setSelectedAuthor(a.author)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedAuthor(a.author);
+                            }
+                          }}
+                          className="publisherAuthorCardCover"
+                          title={`${label} | groups=${a.groupCount} items=${a.itemCount}`}
+                        >
+                          {hasCover ? (
+                            <BaseImage
+                              src={coverSrc}
+                              alt={label}
+                              wrapperClassName="publisherAuthorCardCoverImg"
+                              className="publisherAuthorCardCoverImgEl"
+                              // 让封面按原始比例自适应高度（否则所有卡片同高，看起来像普通网格）
+                              imgStyle={{ width: '100%', height: 'auto' }}
+                              showSkeleton={true}
+                            />
+                          ) : (
+                            <div className="publisherAuthorCardCoverEmpty">暂无封面</div>
+                          )}
+                          <div className="publisherAuthorCardOverlay" aria-hidden="true">
+                            {isVideo && <span className="publisherAuthorCardPlay">▶</span>}
+                          </div>
+                        </div>
+                      }
+                      onClick={() => setSelectedAuthor(a.author)}
+                    >
+                      <div className="publisherAuthorCardName" title={label}>
+                        {label}
+                      </div>
+                      <div className="publisherAuthorCardMeta">
+                        <span className="chip mini">{a.groupCount}g</span>
+                        <span className="chip mini">{a.itemCount}i</span>
+                      </div>
+                    </Card>
+                  ),
+                };
+              })}
+            />
+            <div ref={authorSentinelRef} style={{ height: 1 }} aria-hidden="true" />
+          </div>
+        ) : (
+          <div className="publisherAuthorList">
+            {authors.map((a) => {
+              const label = fmtAuthorLabel(a.author);
+              const isActive = selectedAuthor === a.author;
               return (
                 <button
                   key={`author-${a.author}`}
-                  className={`publisherAuthorCard ${isActive ? 'active' : ''}`}
+                  className={`publisherAuthorRow ${isActive ? 'active' : ''}`}
                   onClick={() => setSelectedAuthor(a.author)}
                   title={`${label} | groups=${a.groupCount} items=${a.itemCount}`}
                   type="button"
                 >
-                  <div className="publisherAuthorCardCover">
-                    {hasCover ? (
-                      <BaseImage
-                        src={coverSrc}
-                        alt={label}
-                        wrapperClassName="publisherAuthorCardCoverImg"
-                        className="publisherAuthorCardCoverImgEl"
-                        imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        showSkeleton={true}
-                      />
-                    ) : (
-                      <div className="publisherAuthorCardCoverEmpty">暂无封面</div>
-                    )}
-                    <div className="publisherAuthorCardOverlay" aria-hidden="true">
-                      {isVideo && <span className="publisherAuthorCardPlay">▶</span>}
-                    </div>
-                  </div>
-                  <div className="publisherAuthorCardBody">
-                    <div className="publisherAuthorCardName">{label}</div>
-                    <div className="publisherAuthorCardMeta">
-                      <span className="chip mini">{a.groupCount}g</span>
-                      <span className="chip mini">{a.itemCount}i</span>
-                    </div>
+                  <div className="publisherAuthorName">{label}</div>
+                  <div className="publisherAuthorCounts">
+                    <span className="chip mini">{a.groupCount}g</span>
+                    <span className="chip mini">{a.itemCount}i</span>
                   </div>
                 </button>
               );
-            }
-
-            return (
-              <button
-                key={`author-${a.author}`}
-                className={`publisherAuthorRow ${isActive ? 'active' : ''}`}
-                onClick={() => setSelectedAuthor(a.author)}
-                title={`${label} | groups=${a.groupCount} items=${a.itemCount}`}
-                type="button"
-              >
-                <div className="publisherAuthorName">{label}</div>
-                <div className="publisherAuthorCounts">
-                  <span className="chip mini">{a.groupCount}g</span>
-                  <span className="chip mini">{a.itemCount}i</span>
-                </div>
-              </button>
-            );
-          })}
-          <div ref={authorSentinelRef} style={{ height: 1 }} aria-hidden="true" />
-        </div>
+            })}
+            <div ref={authorSentinelRef} style={{ height: 1 }} aria-hidden="true" />
+          </div>
+        )}
 
         <div className="publisherSidebarFooter">
           {authorsPagination.hasMore ? (
