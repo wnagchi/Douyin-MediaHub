@@ -203,3 +203,22 @@ export async function deleteMediaItems(items: DeleteItemsRequestItem[]): Promise
   });
   return asJson<DeleteItemsResponse>(r);
 }
+
+export interface ReindexResponse {
+  ok: boolean;
+  error?: string;
+  running?: boolean;
+  dbPath?: string;
+  scannedDirs?: number;
+  skippedDirs?: number;
+  added?: number;
+  updated?: number;
+  deleted?: number;
+  durationMs?: number;
+}
+
+export async function reindex(params: { force?: boolean } = {}): Promise<ReindexResponse> {
+  const force = params.force ? '1' : '0';
+  const r = await fetch(`/api/reindex?force=${force}`, { method: 'POST', cache: 'no-store' });
+  return asJson<ReindexResponse>(r);
+}

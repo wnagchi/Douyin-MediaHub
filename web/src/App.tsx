@@ -12,6 +12,7 @@ import {
   saveConfigMediaDirs,
   fetchTags,
   fetchAuthors,
+  reindex,
   type MediaGroup,
   type MediaDir,
   type PaginationInfo,
@@ -63,6 +64,7 @@ interface AppState {
 
 function App() {
   const navigate = useNavigate();
+  const [fullScanLoading, setFullScanLoading] = useState(false);
   const initialExpanded = (() => {
     try {
       return localStorage.getItem('ui_expanded') === '1';
@@ -331,6 +333,25 @@ function App() {
     }
   }, [state.activeDirId]);
 
+  const handleFullScan = useCallback(async () => {
+    if (fullScanLoading) return { ok: false, running: true };
+    setFullScanLoading(true);
+    try {
+      const r = await reindex({ force: true });
+      if (!r.ok) throw new Error(r.error || '全量扫描失败');
+      // 扫描完成后：刷新当前视图 + 重新加载标签（tags 可能被回填/更新）
+      await reloadTags();
+      if (state.viewMode === 'publisher') {
+        await loadAuthorsMeta();
+      } else {
+        await loadResources({ reset: true });
+      }
+      return r;
+    } finally {
+      setFullScanLoading(false);
+    }
+  }, [fullScanLoading, loadAuthorsMeta, loadResources, reloadTags, state.viewMode]);
+
   // 标签统计：默认取当前目录（或全部目录）的 Top tags
   useEffect(() => {
     reloadTags();
@@ -527,6 +548,8 @@ function App() {
           if (state.viewMode === 'publisher') return loadAuthorsMeta();
           return loadResources({ reset: true });
         }}
+        onFullScan={handleFullScan}
+        fullScanLoading={fullScanLoading}
         onExpandedChange={(expanded) => {
           try {
             localStorage.setItem('ui_expanded', expanded ? '1' : '0');

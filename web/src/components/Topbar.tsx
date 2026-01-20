@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal } from 'antd';
+import { Modal, message } from 'antd';
 import { MediaDir, TagStat } from '../api';
 
 interface TopbarProps {
@@ -22,6 +22,8 @@ interface TopbarProps {
   onTagChange: (tag: string) => void;
   onFeedClick: () => void;
   onRefresh: () => void;
+  onFullScan: () => Promise<any>;
+  fullScanLoading: boolean;
   onExpandedChange: (expanded: boolean) => void;
   onCollapsedChange: (collapsed: boolean) => void;
   onViewModeChange: (mode: 'masonry' | 'album' | 'publisher') => void;
@@ -50,6 +52,8 @@ export default function Topbar({
   onTagChange,
   onFeedClick,
   onRefresh,
+  onFullScan,
+  fullScanLoading,
   onExpandedChange,
   onCollapsedChange,
   onViewModeChange,
@@ -280,6 +284,40 @@ export default function Topbar({
           </button>
           <button id="refresh" className="btn" onClick={onRefresh}>
             刷新
+          </button>
+          <button
+            id="fullScan"
+            className="btn ghost"
+            disabled={fullScanLoading}
+            title="全量扫描（强制更新索引）：POST /api/reindex?force=1"
+            onClick={() => {
+              Modal.confirm({
+                title: '确认执行全量扫描？',
+                content: '这会强制扫描所有资源目录并更新索引（可能耗时较长）。',
+                okText: fullScanLoading ? '扫描中…' : '开始扫描',
+                cancelText: '取消',
+                centered: true,
+                okButtonProps: { disabled: fullScanLoading },
+                onOk: async () => {
+                  const hide = message.loading({ content: '全量扫描中…', duration: 0 });
+                  try {
+                    const r = await onFullScan();
+                    hide();
+                    const scanned = r?.scannedDirs ?? '-';
+                    const added = r?.added ?? '-';
+                    const updated = r?.updated ?? '-';
+                    const deleted = r?.deleted ?? '-';
+                    message.success(`扫描完成：dirs=${scanned} added=${added} updated=${updated} deleted=${deleted}`);
+                  } catch (e) {
+                    hide();
+                    message.error(`扫描失败：${String(e instanceof Error ? e.message : e)}`);
+                    throw e;
+                  }
+                },
+              });
+            }}
+          >
+            扫描
           </button>
           <button id="feed" className="btn ghost" title="沉浸式上滑浏览" onClick={onFeedClick}>
             沉浸
