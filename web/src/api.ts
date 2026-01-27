@@ -1,3 +1,5 @@
+import { cachedFetch, generateCacheKey, memoryCache } from './utils/cache';
+
 export interface MediaDir {
   id: string;
   path: string;
@@ -115,8 +117,12 @@ export async function fetchResources(params: FetchResourcesParams = {}): Promise
   if (params.sort) query.set('sort', params.sort);
   const qs = query.toString();
   const url = qs ? `/api/resources?${qs}` : '/api/resources';
-  const r = await fetch(url, { cache: 'no-store' });
-  return asJson<ResourcesResponse>(r);
+  
+  // 使用缓存：根据筛选条件决定 TTL
+  const hasFilters = params.q || params.type || params.dirId || params.tag || params.author !== undefined;
+  const ttl = hasFilters ? 60000 : 300000; // 有筛选条件时缓存1分钟，否则5分钟
+  
+  return cachedFetch<ResourcesResponse>(url, {}, { ttl });
 }
 
 export interface TagStat {
@@ -139,8 +145,9 @@ export async function fetchTags(params: { q?: string; dirId?: string; limit?: nu
   if (params.limit) query.set('limit', String(params.limit));
   const qs = query.toString();
   const url = qs ? `/api/tags?${qs}` : '/api/tags';
-  const r = await fetch(url, { cache: 'no-store' });
-  return asJson<TagsResponse>(r);
+  
+  // 标签数据变化较少，缓存10分钟
+  return cachedFetch<TagsResponse>(url, {}, { ttl: 600000 });
 }
 
 export interface AuthorStat {
@@ -175,13 +182,14 @@ export async function fetchAuthors(
   if (params.tag) query.set('tag', params.tag);
   const qs = query.toString();
   const url = qs ? `/api/authors?${qs}` : '/api/authors';
-  const r = await fetch(url, { cache: 'no-store' });
-  return asJson<AuthorsResponse>(r);
+  
+  // 作者数据缓存10分钟
+  return cachedFetch<AuthorsResponse>(url, {}, { ttl: 600000 });
 }
 
 export async function fetchConfig(): Promise<ConfigResponse> {
-  const r = await fetch('/api/config', { cache: 'no-store' });
-  return asJson<ConfigResponse>(r);
+  // 配置数据缓存1小时
+  return cachedFetch<ConfigResponse>('/api/config', {}, { ttl: 3600000 });
 }
 
 export async function saveConfigMediaDirs(mediaDirs: string[]): Promise<ConfigResponse> {
@@ -190,7 +198,15 @@ export async function saveConfigMediaDirs(mediaDirs: string[]): Promise<ConfigRe
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mediaDirs }),
   });
-  return asJson<ConfigResponse>(r);
+  const result = await asJson<ConfigResponse>(r);
+  
+  // 配置更新后，清空相关缓存
+  memoryCache.invalidate('/api/config');
+  memoryCache.invalidate('/api/resources');
+  memoryCache.invalidate('/api/authors');
+  memoryCache.invalidate('/api/tags');
+  
+  return result;
 }
 
 export async function inspectMedia({ dirId, filename }: { dirId: string; filename: string }): Promise<InspectResponse> {
@@ -223,8 +239,135 @@ export interface ReindexResponse {
   durationMs?: number;
 }
 
+export interface ScanProgress {
+  phase: 'init' | 'scanning' | 'processing' | 'complete';
+  totalDirs: number;
+  currentDir: number;
+  currentDirPath: string;
+  scannedFiles: number;
+  added: number;
+  updated: number;
+  deleted: number;
+}
+
 export async function reindex(params: { force?: boolean } = {}): Promise<ReindexResponse> {
   const force = params.force ? '1' : '0';
   const r = await fetch(`/api/reindex?force=${force}`, { method: 'POST', cache: 'no-store' });
   return asJson<ReindexResponse>(r);
+}
+
+export function reindexWithProgress(
+  params: { force?: boolean } = {},
+  onProgress?: (progress: ScanProgress) => void
+): Promise<ReindexResponse> {
+  return new Promise((resolve, reject) => {
+    const force = params.force ? '1' : '0';
+    const eventSource = new EventSource(`/api/reindex?force=${force}&stream=1`);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+
+        if (message.type === 'progress' && onProgress) {
+          onProgress(message.data);
+        } else if (message.type === 'complete') {
+          eventSource.close();
+          // 扫描完成后清空缓存
+          memoryCache.invalidate();
+          resolve(message.data);
+        } else if (message.type === 'error') {
+          eventSource.close();
+          reject(new Error(message.data.error || '扫描失败'));
+        }
+      } catch (e) {
+        console.error('Failed to parse SSE message:', e);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      eventSource.close();
+      reject(new Error('扫描连接中断'));
+    };
+  });
+}
+
+// 缓存管理 API
+export interface CacheStats {
+  ok: boolean;
+  thumbs: {
+    count: number;
+    size: number;
+    sizeFormatted: string;
+    path: string;
+    oldestAccess?: string;
+    newestAccess?: string;
+  };
+  vthumbs: {
+    count: number;
+    size: number;
+    sizeFormatted: string;
+    path: string;
+    oldestAccess?: string;
+    newestAccess?: string;
+  };
+  database: {
+    size: number;
+    sizeFormatted: string;
+    path: string;
+  };
+  total: number;
+  totalFormatted: string;
+}
+
+export interface ClearCacheResponse {
+  ok: boolean;
+  error?: string;
+  deleted?: number;
+  freedSize?: number;
+  freedSizeFormatted?: string;
+  details?: {
+    thumbs: {
+      deleted: number;
+      freedSize: number;
+      freedSizeFormatted: string;
+    };
+    vthumbs: {
+      deleted: number;
+      freedSize: number;
+      freedSizeFormatted: string;
+    };
+  };
+}
+
+export async function fetchCacheStats(): Promise<CacheStats> {
+  const r = await fetch('/api/cache/stats');
+  return asJson<CacheStats>(r);
+}
+
+export async function clearThumbs(): Promise<ClearCacheResponse> {
+  const r = await fetch('/api/cache/clear/thumbs', { method: 'POST' });
+  return asJson<ClearCacheResponse>(r);
+}
+
+export async function cleanupCache(maxAgeMs?: number): Promise<ClearCacheResponse> {
+  const r = await fetch('/api/cache/cleanup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ maxAgeMs }),
+  });
+  return asJson<ClearCacheResponse>(r);
+}
+
+export function clearBrowserCache() {
+  // 清空内存缓存
+  memoryCache.clear();
+  
+  // 清空 Service Worker 缓存
+  if ('caches' in window) {
+    caches.keys().then((names) => {
+      names.forEach((name) => caches.delete(name));
+    });
+  }
+  
+  return Promise.resolve({ ok: true });
 }

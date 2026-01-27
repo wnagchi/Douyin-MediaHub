@@ -12,6 +12,8 @@ interface MediaCardProps {
   wrapperClassName?: string;
   onThumbClick: (groupIdx: number, itemIdx: number) => void;
   onTagClick?: (tag: string) => void;
+  selectionMode?: boolean;
+  selectedItems?: Set<string>;
 }
 
 function fmtGroupTitle(g: MediaGroup): string {
@@ -45,6 +47,8 @@ export default function MediaCard({
   wrapperClassName,
   onThumbClick,
   onTagClick,
+  selectionMode = false,
+  selectedItems = new Set(),
 }: MediaCardProps) {
   const title = fmtGroupTitle(group);
   const tags = typeTags(group);
@@ -65,6 +69,10 @@ export default function MediaCard({
       onThumbClick(groupIdx, itemIdx);
     }
   };
+
+  // 检查第一个项目是否被选中
+  const firstItemKey = first?.dirId && first?.filename ? `${first.dirId}|${first.filename}` : '';
+  const isFirstItemSelected = selectionMode && selectedItems.has(firstItemKey);
 
   // 构建描述信息
   const descriptionParts: string[] = [];
@@ -154,12 +162,13 @@ export default function MediaCard({
   return (
     <Card
       hoverable
-      className={wrapperClassName || ''}
-      style={{ 
+      className={`${wrapperClassName || ''} ${selectionMode ? 'selectionMode' : ''} ${isFirstItemSelected ? 'selected' : ''}`}
+      style={{
         backgroundColor: 'rgba(0, 0, 0, 0.3)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
+        border: isFirstItemSelected ? '2px solid var(--accent)' : '1px solid rgba(255, 255, 255, 0.1)',
         borderRadius: '16px',
         overflow: 'hidden',
+        position: 'relative',
       }}
       styles={{
         body: {
@@ -189,11 +198,12 @@ export default function MediaCard({
               className=""
               src={escHtml(first.thumbUrl ?? first.url)}
               alt={title}
-              imgStyle={{ 
-                width: '100%', 
-                height: '100%', 
+              imgStyle={{
+                width: '100%',
+                height: '100%',
                 objectFit: 'cover',
               }}
+              priority={groupIdx < 6} // 前6个卡片优先加载（首屏优化）
             />
             {firstIsVideo && (
               <div
@@ -215,6 +225,31 @@ export default function MediaCard({
                 }}
               >
                 ▶
+              </div>
+            )}
+            {/* 选择模式下的复选标记 */}
+            {selectionMode && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '8px',
+                  right: '8px',
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '50%',
+                  background: isFirstItemSelected ? 'var(--accent)' : 'rgba(0, 0, 0, 0.6)',
+                  border: isFirstItemSelected ? '2px solid var(--accent)' : '2px solid rgba(255, 255, 255, 0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontSize: '16px',
+                  fontWeight: 'bold',
+                  zIndex: 10,
+                  pointerEvents: 'none',
+                }}
+              >
+                {isFirstItemSelected && '✓'}
               </div>
             )}
           </div>

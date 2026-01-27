@@ -20,6 +20,8 @@ interface MediaTilesProps {
   loadingMore: boolean;
   onLoadMore: () => void;
   onOpen: (groupIdx: number, itemIdx: number) => void;
+  selectionMode?: boolean;
+  selectedItems?: Set<string>;
 }
 
 export default function MediaTiles({
@@ -31,6 +33,8 @@ export default function MediaTiles({
   loadingMore,
   onLoadMore,
   onOpen,
+  selectionMode = false,
+  selectedItems = new Set(),
 }: MediaTilesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -91,6 +95,8 @@ export default function MediaTiles({
       const isLive = groupType === '实况';
       const badgeLabel = isLive ? '实况' : isVideo ? '视频' : data.item.kind === 'image' ? '图片' : '文件';
       const badgeVariant = isLive ? 'live' : isVideo ? 'video' : data.item.kind === 'image' ? 'photo' : '';
+      const itemKey = data.item.dirId && data.item.filename ? `${data.item.dirId}|${data.item.filename}` : '';
+      const isSelected = selectionMode && selectedItems.has(itemKey);
 
       return (
         <div
@@ -104,7 +110,9 @@ export default function MediaTiles({
               onOpen(data.groupIdx, data.itemIdx);
             }
           }}
-          className="relative w-full overflow-hidden border border-white/10 bg-black/20 shadow-[0_18px_60px_rgba(0,0,0,.45)]"
+          className={`tileWrapper relative w-full overflow-hidden border border-white/10 bg-black/20 shadow-[0_18px_60px_rgba(0,0,0,.45)] ${
+            selectionMode ? 'selectionMode' : ''
+          } ${isSelected ? 'selected' : ''}`}
         >
           {isVideo || data.item.kind === 'image' ? (
             <BaseImage
@@ -126,7 +134,7 @@ export default function MediaTiles({
         </div>
       );
     },
-    [onOpen]
+    [onOpen, selectionMode, selectedItems]
   );
 
   if (loading && !items.length) {

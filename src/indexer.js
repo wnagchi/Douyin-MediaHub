@@ -168,7 +168,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     return db;
   }
 
-  async function updateCheck({ force = false } = {}) {
+  async function updateCheck({ force = false, onProgress = null } = {}) {
     if (running) {
       return { ok: false, running: true };
     }
@@ -179,6 +179,20 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
       const dirs = await mediaStore.listExistingDirs();
       if (!dirs.length) {
         return { ok: true, scannedDirs: 0, skippedDirs: 0, added: 0, updated: 0, deleted: 0, durationMs: nowMs() - start };
+      }
+
+      // 发送初始进度
+      if (onProgress) {
+        onProgress({
+          phase: 'init',
+          totalDirs: dirs.length,
+          currentDir: 0,
+          currentDirPath: '',
+          scannedFiles: 0,
+          added: 0,
+          updated: 0,
+          deleted: 0,
+        });
       }
 
       // 清理：如果用户修改了 config.json（移除了某些 mediaDir），旧的 dirId 数据会残留在 DB，
@@ -241,6 +255,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
       let added = 0;
       let updated = 0;
       let deleted = 0;
+      let scannedFiles = 0;
 
       for (const dir of dirs) {
         if (!(await dirExists(dir.path))) continue;
@@ -261,11 +276,42 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
         }
 
         scannedDirs++;
+
+        // 发送目录扫描进度
+        if (onProgress) {
+          onProgress({
+            phase: 'scanning',
+            totalDirs: dirs.length,
+            currentDir: scannedDirs,
+            currentDirPath: dir.path,
+            scannedFiles,
+            added,
+            updated,
+            deleted,
+          });
+        }
+
         // scan this dir (recursive)
         const files = await listFilesRecursive(dir.path);
 
         // Mark seenRun for parsed files; leave others untouched
         for (const relPath of files) {
+          scannedFiles++;
+
+          // 每处理 10 个文件发送一次进度更新
+          if (scannedFiles % 10 === 0 && onProgress) {
+            onProgress({
+              phase: 'processing',
+              totalDirs: dirs.length,
+              currentDir: scannedDirs,
+              currentDirPath: dir.path,
+              scannedFiles,
+              added,
+              updated,
+              deleted,
+            });
+          }
+
           const baseName = path.basename(relPath);
           const p = parseMediaFilename(baseName);
           if (!p) continue;
@@ -282,7 +328,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
           const changed = !hasPrev || prevStat.mtimeMs !== fst.mtimeMs || prevStat.size !== fst.size;
 
           // Even if unchanged, update seenRun so delete step won't remove it.
-          // NOTE: force=1 的意义除了“强制扫描目录”，还用于回填新增的派生字段（如 tags）。
+          // NOTE: force=1 的意义除了"强制扫描目录"，还用于回填新增的派生字段（如 tags）。
           // 因此：文件未变化但 force=true 时，也要重建 types/tags（但不要生成缩略图，避免全量耗时）。
           if (!changed) {
             markSeen.run(scanRun, dir.id, relPath);

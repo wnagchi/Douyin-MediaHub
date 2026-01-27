@@ -4,10 +4,12 @@ const { URL } = require("url");
 
 const { send, sendJson } = require("./http/respond");
 const { safeJoin, serveStaticFile } = require("./http/static");
+const { cacheManager } = require("./http/cache");
 const { inspectMp4 } = require("./media");
 const { dirExists } = require("./utils/fs");
 const { createThumbGenerator, ensureThumbForImage } = require("./thumbs");
 const { createVideoThumbGenerator, ensureVideoThumb } = require("./videoThumbs");
+const { ThumbCacheManager } = require("./cache/thumbCache");
 
 async function readJsonBody(req, { limitBytes = 256 * 1024 } = {}) {
   const chunks = [];
@@ -31,6 +33,8 @@ async function readJsonBody(req, { limitBytes = 256 * 1024 } = {}) {
 function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
   const thumbGenerator = createThumbGenerator({ rootDir });
   const videoThumbGenerator = createVideoThumbGenerator({ rootDir });
+  const thumbCacheManager = new ThumbCacheManager({ rootDir });
+  
   return async function handler(req, res) {
     const u = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     const pathname = decodeURIComponent(u.pathname);
@@ -82,12 +86,31 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
           sort,
         });
 
-        return sendJson(res, 200, {
+        const responseData = {
           ok: true,
           dirs: dirsWithStatus,
           groups: result.groups || [],
           pagination: result.pagination,
+        };
+
+        // 设置缓存策略：有筛选条件时缓存1分钟，否则5分钟
+        const hasFilters = qFilter || typeFilter || dirFilter || tagFilter || hasAuthorParam;
+        const maxAge = hasFilters ? 60 : 300;
+        
+        const etag = cacheManager.generateETag(responseData);
+        if (cacheManager.shouldReturn304(req, etag)) {
+          res.writeHead(304);
+          res.end();
+          return;
+        }
+
+        cacheManager.setCacheHeaders(res, {
+          maxAge,
+          etag,
+          lastModified: new Date(),
         });
+
+        return sendJson(res, 200, responseData);
       } catch (e) {
         return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
       }
@@ -123,7 +146,24 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
           }))
         );
         const r = indexer.queryAuthors({ page, pageSize, q, dirId: dirFilter, type: typeFilter, tag: tagFilter });
-        return sendJson(res, 200, { ...r, dirs: dirsWithStatus });
+        
+        const responseData = { ...r, dirs: dirsWithStatus };
+        
+        // 作者数据缓存10分钟
+        const etag = cacheManager.generateETag(responseData);
+        if (cacheManager.shouldReturn304(req, etag)) {
+          res.writeHead(304);
+          res.end();
+          return;
+        }
+
+        cacheManager.setCacheHeaders(res, {
+          maxAge: 600, // 10分钟
+          etag,
+          lastModified: new Date(),
+        });
+
+        return sendJson(res, 200, responseData);
       } catch (e) {
         return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
       }
@@ -136,6 +176,21 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
         const limitParam = Number.parseInt(u.searchParams.get("limit") || "200", 10);
         const limit = Number.isFinite(limitParam) ? limitParam : 200;
         const r = indexer.queryTags({ q, limit, dirId: dirFilter });
+        
+        // 标签数据变化较少，缓存10分钟
+        const etag = cacheManager.generateETag(r);
+        if (cacheManager.shouldReturn304(req, etag)) {
+          res.writeHead(304);
+          res.end();
+          return;
+        }
+
+        cacheManager.setCacheHeaders(res, {
+          maxAge: 600, // 10分钟
+          etag,
+          lastModified: new Date(),
+        });
+
         return sendJson(res, 200, r);
       } catch (e) {
         return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
@@ -153,6 +208,52 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
         if (provided !== token) return sendJson(res, 403, { ok: false, error: "forbidden" });
       }
       const force = (u.searchParams.get("force") || "").toString().trim() === "1";
+      const stream = (u.searchParams.get("stream") || "").toString().trim() === "1";
+
+      // 如果请求流式进度，使用 SSE
+      if (stream) {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+        });
+
+        // 发送 SSE 消息的辅助函数
+        const sendSSE = (data) => {
+          res.write(`data: ${JSON.stringify(data)}\n\n`);
+        };
+
+        try {
+          console.log(
+            `[hook] /api/reindex (stream) invoked method=${req.method} force=${force ? "1" : "0"} ` +
+              `ip=${req.socket?.remoteAddress || "-"} ua=${String(req.headers["user-agent"] || "-")}`
+          );
+
+          const r = await indexer.updateCheck({
+            force,
+            onProgress: (progress) => {
+              sendSSE({ type: 'progress', data: progress });
+            },
+          });
+
+          console.log(
+            `[hook] /api/reindex (stream) done ok=${Boolean(r && r.ok)} ` +
+              `scannedDirs=${r?.scannedDirs ?? "-"} skippedDirs=${r?.skippedDirs ?? "-"} ` +
+              `added=${r?.added ?? "-"} updated=${r?.updated ?? "-"} deleted=${r?.deleted ?? "-"} ` +
+              `durationMs=${r?.durationMs ?? "-"}`
+          );
+
+          sendSSE({ type: 'complete', data: r });
+          res.end();
+        } catch (e) {
+          console.warn(`[hook] /api/reindex (stream) failed: ${String(e?.message || e)}`);
+          sendSSE({ type: 'error', data: { error: String(e?.message || e) } });
+          res.end();
+        }
+        return;
+      }
+
+      // 非流式请求，保持原有逻辑
       try {
         // eslint-disable-next-line no-console
         console.log(
@@ -177,12 +278,28 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
 
     if (pathname === "/api/config") {
       if (req.method === "GET") {
-        return sendJson(res, 200, {
+        const responseData = {
           ok: true,
           mediaDirs: mediaStore.getMediaDirs().map((d) => d.path),
           defaultMediaDirs: mediaStore.getDefaultDirs().map((d) => d.path),
           fromEnv: Boolean(process.env.MEDIA_DIR || process.env.MEDIA_DIRS),
+        };
+
+        // 配置数据缓存较长时间（1小时），直到修改
+        const etag = cacheManager.generateETag(responseData);
+        if (cacheManager.shouldReturn304(req, etag)) {
+          res.writeHead(304);
+          res.end();
+          return;
+        }
+
+        cacheManager.setCacheHeaders(res, {
+          maxAge: 3600, // 1小时
+          etag,
+          lastModified: new Date(),
         });
+
+        return sendJson(res, 200, responseData);
       }
 
       if (req.method === "POST") {
@@ -416,6 +533,115 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
 
       // If thumb generation failed, return 404 (don't fallback to video file)
       return send(res, 404, "Video thumb not found");
+    }
+
+    // 缓存管理 API
+    if (req.method === "GET" && pathname === "/api/cache/stats") {
+      try {
+        const stats = await thumbCacheManager.getStats();
+        
+        // 添加数据库统计
+        const dbPath = path.join(rootDir, "data", "index.sqlite");
+        let dbSize = 0;
+        try {
+          const dbStat = await fsp.stat(dbPath);
+          dbSize = dbStat.size;
+        } catch {
+          // 数据库文件不存在
+        }
+
+        const response = {
+          ok: true,
+          thumbs: {
+            count: stats.thumbs.count,
+            size: stats.thumbs.size,
+            sizeFormatted: ThumbCacheManager.formatSize(stats.thumbs.size),
+            path: stats.thumbs.path,
+            oldestAccess: stats.thumbs.oldestAccess,
+            newestAccess: stats.thumbs.newestAccess,
+          },
+          vthumbs: {
+            count: stats.vthumbs.count,
+            size: stats.vthumbs.size,
+            sizeFormatted: ThumbCacheManager.formatSize(stats.vthumbs.size),
+            path: stats.vthumbs.path,
+            oldestAccess: stats.vthumbs.oldestAccess,
+            newestAccess: stats.vthumbs.newestAccess,
+          },
+          database: {
+            size: dbSize,
+            sizeFormatted: ThumbCacheManager.formatSize(dbSize),
+            path: dbPath,
+          },
+          total: stats.total + dbSize,
+          totalFormatted: ThumbCacheManager.formatSize(stats.total + dbSize),
+        };
+
+        // 设置缓存头（统计信息缓存30秒）
+        cacheManager.setCacheHeaders(res, {
+          maxAge: 30,
+          etag: cacheManager.generateETag(response),
+        });
+
+        return sendJson(res, 200, response);
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
+      }
+    }
+
+    if (req.method === "POST" && pathname === "/api/cache/clear/thumbs") {
+      try {
+        const result = await thumbCacheManager.clearAll();
+        return sendJson(res, 200, {
+          ok: true,
+          deleted: result.total.deleted,
+          freedSize: result.total.freedSize,
+          freedSizeFormatted: ThumbCacheManager.formatSize(result.total.freedSize),
+          details: {
+            thumbs: {
+              deleted: result.thumbs.deleted,
+              freedSize: result.thumbs.freedSize,
+              freedSizeFormatted: ThumbCacheManager.formatSize(result.thumbs.freedSize),
+            },
+            vthumbs: {
+              deleted: result.vthumbs.deleted,
+              freedSize: result.vthumbs.freedSize,
+              freedSizeFormatted: ThumbCacheManager.formatSize(result.vthumbs.freedSize),
+            },
+          },
+        });
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
+      }
+    }
+
+    if (req.method === "POST" && pathname === "/api/cache/cleanup") {
+      try {
+        const body = await readJsonBody(req, { limitBytes: 1024 });
+        const maxAgeMs = body.maxAgeMs || 30 * 24 * 60 * 60 * 1000; // 默认30天
+        const result = await thumbCacheManager.cleanup({ maxAge: maxAgeMs });
+        
+        return sendJson(res, 200, {
+          ok: true,
+          deleted: result.total.deleted,
+          freedSize: result.total.freedSize,
+          freedSizeFormatted: ThumbCacheManager.formatSize(result.total.freedSize),
+          details: {
+            thumbs: {
+              deleted: result.thumbs.deleted,
+              freedSize: result.thumbs.freedSize,
+              freedSizeFormatted: ThumbCacheManager.formatSize(result.thumbs.freedSize),
+            },
+            vthumbs: {
+              deleted: result.vthumbs.deleted,
+              freedSize: result.vthumbs.freedSize,
+              freedSizeFormatted: ThumbCacheManager.formatSize(result.vthumbs.freedSize),
+            },
+          },
+        });
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
+      }
     }
 
     if (req.method === "GET" && pathname.startsWith("/media/")) {

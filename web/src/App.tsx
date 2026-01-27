@@ -13,10 +13,13 @@ import {
   fetchTags,
   fetchAuthors,
   reindex,
+  reindexWithProgress,
+  deleteMediaItems,
   type MediaGroup,
   type MediaDir,
   type PaginationInfo,
   type TagStat,
+  type ScanProgress,
 } from './api';
 import { getPreferredItemIndex } from './utils/media';
 import type { MediaGridItem, MediaGridSection } from './components/MediaGrid';
@@ -35,6 +38,8 @@ interface AppState {
   activeDirId: string;
   q: string;
   activeTag: string;
+  activeTags: string[]; // 多选标签
+  tagFilterMode: 'AND' | 'OR'; // 标签筛选逻辑
   tagStats: TagStat[];
   tagStatsLoading: boolean;
   tagStatsError: string | null;
@@ -60,11 +65,17 @@ interface AppState {
   loadingMore: boolean;
   error: string | null;
   pagination: PaginationState;
+  // 批量操作相关
+  selectionMode: boolean;
+  selectedItems: Set<string>; // 格式: "dirId|filename"
+  // 收藏相关
+  favorites: Set<string>; // 格式: "dirId|filename"
 }
 
 function App() {
   const navigate = useNavigate();
   const [fullScanLoading, setFullScanLoading] = useState(false);
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const initialExpanded = (() => {
     try {
       return localStorage.getItem('ui_expanded') === '1';
@@ -106,6 +117,8 @@ function App() {
     activeDirId: 'all',
     q: '',
     activeTag: '',
+    activeTags: [],
+    tagFilterMode: 'OR',
     tagStats: [],
     tagStatsLoading: false,
     tagStatsError: null,
@@ -134,6 +147,9 @@ function App() {
       hasMore: false,
       totalItems: 0,
     },
+    selectionMode: false,
+    selectedItems: new Set(),
+    favorites: new Set(),
   });
 
   const loadResources = useCallback(
@@ -160,7 +176,10 @@ function App() {
       if (filters.q.trim()) params.q = filters.q.trim();
       if (filters.activeType && filters.activeType !== '全部') params.type = filters.activeType;
       if (filters.activeDirId && filters.activeDirId !== 'all') params.dirId = filters.activeDirId;
-      if (filters.activeTag && filters.activeTag.trim()) params.tag = filters.activeTag.trim();
+      // 多标签模式下不使用单标签筛选
+      if (state.activeTags.length === 0 && filters.activeTag && filters.activeTag.trim()) {
+        params.tag = filters.activeTag.trim();
+      }
       if (filters.sortMode) params.sort = filters.sortMode;
 
       setState((prev) => ({
@@ -210,7 +229,30 @@ function App() {
 
         setState((prev) => {
           const baseGroups = reset ? [] : prev.groups;
-          const nextGroups = [...baseGroups, ...(j.groups || [])];
+          let nextGroups = [...baseGroups, ...(j.groups || [])];
+
+          // 客户端多标签筛选
+          if (state.activeTags.length > 0) {
+            nextGroups = nextGroups.filter((group) => {
+              const groupTags = Array.isArray(group.tags) ? group.tags : [];
+              const normalizedGroupTags = groupTags.map(t => `#${t}`);
+
+              if (state.tagFilterMode === 'AND') {
+                // AND 模式：必须包含所有选中的标签
+                return state.activeTags.every(activeTag => {
+                  const normalized = activeTag.startsWith('#') ? activeTag : `#${activeTag}`;
+                  return normalizedGroupTags.includes(normalized) || groupTags.includes(activeTag.replace('#', ''));
+                });
+              } else {
+                // OR 模式：包含任一选中的标签即可
+                return state.activeTags.some(activeTag => {
+                  const normalized = activeTag.startsWith('#') ? activeTag : `#${activeTag}`;
+                  return normalizedGroupTags.includes(normalized) || groupTags.includes(activeTag.replace('#', ''));
+                });
+              }
+            });
+          }
+
           const pagination: PaginationState = j.pagination
             ? {
                 ...j.pagination,
@@ -247,7 +289,7 @@ function App() {
         }));
       }
     },
-    [state.activeDirId, state.activeTag, state.activeType, state.pagination.page, state.q, state.sortMode]
+    [state.activeDirId, state.activeTag, state.activeType, state.activeTags, state.tagFilterMode, state.pagination.page, state.q, state.sortMode]
   );
 
   const loadAuthorsMeta = useCallback(async () => {
@@ -336,8 +378,14 @@ function App() {
   const handleFullScan = useCallback(async () => {
     if (fullScanLoading) return { ok: false, running: true };
     setFullScanLoading(true);
+    setScanProgress(null);
     try {
-      const r = await reindex({ force: true });
+      const r = await reindexWithProgress(
+        { force: true },
+        (progress) => {
+          setScanProgress(progress);
+        }
+      );
       if (!r.ok) throw new Error(r.error || '全量扫描失败');
       // 扫描完成后：刷新当前视图 + 重新加载标签（tags 可能被回填/更新）
       await reloadTags();
@@ -349,6 +397,7 @@ function App() {
       return r;
     } finally {
       setFullScanLoading(false);
+      setScanProgress(null);
     }
   }, [fullScanLoading, loadAuthorsMeta, loadResources, reloadTags, state.viewMode]);
 
@@ -393,7 +442,55 @@ function App() {
     }
   };
 
+  // 批量操作相关函数
+  const toggleSelectionMode = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      selectionMode: !prev.selectionMode,
+      selectedItems: new Set(), // 切换模式时清空选择
+    }));
+  }, []);
+
+  const toggleItemSelection = useCallback((dirId: string, filename: string) => {
+    const key = `${dirId}|${filename}`;
+    setState((prev) => {
+      const newSelected = new Set(prev.selectedItems);
+      if (newSelected.has(key)) {
+        newSelected.delete(key);
+      } else {
+        newSelected.add(key);
+      }
+      return { ...prev, selectedItems: newSelected };
+    });
+  }, []);
+
+  const selectAll = useCallback(() => {
+    const allItems = new Set<string>();
+    state.groups.forEach((group) => {
+      group.items?.forEach((item) => {
+        if (item.dirId && item.filename) {
+          allItems.add(`${item.dirId}|${item.filename}`);
+        }
+      });
+    });
+    setState((prev) => ({ ...prev, selectedItems: allItems }));
+  }, [state.groups]);
+
+  const clearSelection = useCallback(() => {
+    setState((prev) => ({ ...prev, selectedItems: new Set() }));
+  }, []);
+
   const handleOpenModal = (groupIdx: number, itemIdx: number, feedMode = false) => {
+    // 选择模式下点击切换选择状态
+    if (state.selectionMode) {
+      const group = state.groups[groupIdx];
+      const item = group?.items?.[itemIdx];
+      if (item?.dirId && item.filename) {
+        toggleItemSelection(item.dirId, item.filename);
+      }
+      return;
+    }
+
     setState((prev) => {
       const group = prev.groups[groupIdx];
       return {
@@ -434,16 +531,63 @@ function App() {
       if (prev.activeDirId && prev.activeDirId !== 'all') qs.set('dirId', prev.activeDirId);
       if (prev.activeTag && prev.activeTag.trim()) qs.set('tag', prev.activeTag.trim());
       if (prev.sortMode) qs.set('sort', prev.sortMode);
-
-      // 先关弹层再跳转（避免残留 body scroll lock 等副作用）
-      queueMicrotask(() => navigate({ pathname: '/feed', search: `?${qs.toString()}` }));
-      return {
-        ...prev,
-        modal: { ...prev.modal, open: false },
-        feedMode: false,
-      };
+      navigate({ pathname: '/feed', search: `?${qs.toString()}` });
+      return prev;
     });
   };
+
+  // 批量删除
+  const handleBatchDelete = useCallback(async () => {
+    if (state.selectedItems.size === 0) return;
+
+    const items = Array.from(state.selectedItems).map((key) => {
+      const [dirId, filename] = key.split('|');
+      return { dirId, filename };
+    });
+
+    try {
+      const result = await deleteMediaItems(items);
+      if (!result.ok) {
+        throw new Error(result.error || '删除失败');
+      }
+
+      // 刷新列表
+      await loadResources({ reset: true });
+
+      // 退出选择模式
+      setState((prev) => ({
+        ...prev,
+        selectionMode: false,
+        selectedItems: new Set(),
+      }));
+
+      return result;
+    } catch (error) {
+      throw error;
+    }
+  }, [state.selectedItems, loadResources]);
+
+  // 批量下载（生成下载链接）
+  const handleBatchDownload = useCallback(() => {
+    if (state.selectedItems.size === 0) return;
+
+    const items = Array.from(state.selectedItems).map((key) => {
+      const [dirId, filename] = key.split('|');
+      return { dirId, filename };
+    });
+
+    // 为每个文件创建下载链接并触发下载
+    items.forEach(({ dirId, filename }) => {
+      const url = `/media/${dirId}/${encodeURIComponent(filename)}`;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    });
+  }, [state.selectedItems]);
 
   const handleModalStep = (delta: number) => {
     setState((prev) => {
@@ -513,6 +657,8 @@ function App() {
         activeType={state.activeType}
         activeDirId={state.activeDirId}
         activeTag={state.activeTag}
+        activeTags={state.activeTags}
+        tagFilterMode={state.tagFilterMode}
         tagStats={state.tagStats}
         tagStatsLoading={state.tagStatsLoading}
         tagStatsError={state.tagStatsError}
@@ -526,6 +672,18 @@ function App() {
         onTypeChange={(type) => refreshWithOverrides({ activeType: type })}
         onDirChange={(dirId) => refreshWithOverrides({ activeDirId: dirId })}
         onTagChange={(tag) => refreshWithOverrides({ activeTag: tag })}
+        onTagsChange={(tags) => {
+          setState((prev) => ({ ...prev, activeTags: tags }));
+          if (state.viewMode !== 'publisher') {
+            loadResources({ reset: true });
+          }
+        }}
+        onTagFilterModeChange={(mode) => {
+          setState((prev) => ({ ...prev, tagFilterMode: mode }));
+          if (state.viewMode !== 'publisher' && state.activeTags.length > 0) {
+            loadResources({ reset: true });
+          }
+        }}
         onFeedClick={() => {
           if (!state.groups.length) return;
           const g0 = state.groups[0];
@@ -550,6 +708,9 @@ function App() {
         }}
         onFullScan={handleFullScan}
         fullScanLoading={fullScanLoading}
+        selectionMode={state.selectionMode}
+        selectedCount={state.selectedItems.size}
+        onToggleSelectionMode={toggleSelectionMode}
         onExpandedChange={(expanded) => {
           try {
             localStorage.setItem('ui_expanded', expanded ? '1' : '0');
@@ -649,6 +810,8 @@ function App() {
             loadingMore={state.loadingMore}
             onLoadMore={handleLoadMore}
             onOpen={(groupIdx, itemIdx) => handleOpenModal(groupIdx, itemIdx, false)}
+            selectionMode={state.selectionMode}
+            selectedItems={state.selectedItems}
           />
         ) : (
           <MediaGrid
@@ -661,6 +824,8 @@ function App() {
             onLoadMore={handleLoadMore}
             onThumbClick={(groupIdx, itemIdx) => handleOpenModal(groupIdx, itemIdx, false)}
             onTagClick={(tag) => refreshWithOverrides({ activeTag: tag })}
+            selectionMode={state.selectionMode}
+            selectedItems={state.selectedItems}
           />
         )}
       </main>
@@ -678,6 +843,127 @@ function App() {
           onFeedModeChange={handleFeedModeChange}
           onReload={() => loadResources({ reset: true })}
         />
+      )}
+
+      {/* 扫描进度弹窗 - 手机端优化 */}
+      {fullScanLoading && scanProgress && (
+        <div className="scanProgressOverlay">
+          <div className="scanProgressModal">
+            <div className="scanProgressHeader">
+              <h3>正在扫描资源</h3>
+              <div className="scanProgressPhase">
+                {scanProgress.phase === 'init' && '初始化...'}
+                {scanProgress.phase === 'scanning' && '扫描目录中...'}
+                {scanProgress.phase === 'processing' && '处理文件中...'}
+              </div>
+            </div>
+
+            <div className="scanProgressBody">
+              <div className="scanProgressStats">
+                <div className="scanProgressStat">
+                  <span className="scanProgressStatLabel">目录进度</span>
+                  <span className="scanProgressStatValue">
+                    {scanProgress.currentDir} / {scanProgress.totalDirs}
+                  </span>
+                </div>
+                <div className="scanProgressStat">
+                  <span className="scanProgressStatLabel">已扫描文件</span>
+                  <span className="scanProgressStatValue">{scanProgress.scannedFiles}</span>
+                </div>
+                <div className="scanProgressStat">
+                  <span className="scanProgressStatLabel">新增</span>
+                  <span className="scanProgressStatValue success">{scanProgress.added}</span>
+                </div>
+                <div className="scanProgressStat">
+                  <span className="scanProgressStatLabel">更新</span>
+                  <span className="scanProgressStatValue warning">{scanProgress.updated}</span>
+                </div>
+                <div className="scanProgressStat">
+                  <span className="scanProgressStatLabel">删除</span>
+                  <span className="scanProgressStatValue error">{scanProgress.deleted}</span>
+                </div>
+              </div>
+
+              {scanProgress.currentDirPath && (
+                <div className="scanProgressPath">
+                  <span className="scanProgressPathLabel">当前目录：</span>
+                  <span className="scanProgressPathValue">{scanProgress.currentDirPath}</span>
+                </div>
+              )}
+
+              <div className="scanProgressBar">
+                <div
+                  className="scanProgressBarFill"
+                  style={{
+                    width: `${scanProgress.totalDirs > 0 ? (scanProgress.currentDir / scanProgress.totalDirs) * 100 : 0}%`,
+                  }}
+                ></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 批量操作底部工具栏 - 手机端优化 */}
+      {state.selectionMode && (
+        <div className="batchActionBar">
+          <div className="batchActionBarContent">
+            <div className="batchActionBarInfo">
+              <span className="batchActionBarCount">
+                已选择 {state.selectedItems.size} 项
+              </span>
+              <button
+                className="batchActionBarLink"
+                onClick={state.selectedItems.size === 0 ? selectAll : clearSelection}
+              >
+                {state.selectedItems.size === 0 ? '全选' : '清空'}
+              </button>
+            </div>
+            <div className="batchActionBarButtons">
+              <button
+                className="batchActionBarButton download"
+                disabled={state.selectedItems.size === 0}
+                onClick={handleBatchDownload}
+                title="下载选中项"
+              >
+                <span className="batchActionBarButtonIcon">⬇️</span>
+                <span className="batchActionBarButtonText">下载</span>
+              </button>
+              <button
+                className="batchActionBarButton delete"
+                disabled={state.selectedItems.size === 0}
+                onClick={async () => {
+                  if (state.selectedItems.size === 0) return;
+
+                  const confirmed = window.confirm(
+                    `确定要删除选中的 ${state.selectedItems.size} 个文件吗？\n\n此操作不可撤销！`
+                  );
+
+                  if (!confirmed) return;
+
+                  try {
+                    await handleBatchDelete();
+                    alert(`成功删除 ${state.selectedItems.size} 个文件`);
+                  } catch (error) {
+                    alert(`删除失败：${error instanceof Error ? error.message : String(error)}`);
+                  }
+                }}
+                title="删除选中项"
+              >
+                <span className="batchActionBarButtonIcon">🗑️</span>
+                <span className="batchActionBarButtonText">删除</span>
+              </button>
+              <button
+                className="batchActionBarButton cancel"
+                onClick={toggleSelectionMode}
+                title="取消选择"
+              >
+                <span className="batchActionBarButtonIcon">✕</span>
+                <span className="batchActionBarButtonText">取消</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

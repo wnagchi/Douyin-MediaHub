@@ -24,6 +24,8 @@ interface MediaGridProps {
   onLoadMore: () => void;
   onThumbClick: (groupIdx: number, itemIdx: number) => void;
   onTagClick?: (tag: string) => void;
+  selectionMode?: boolean;
+  selectedItems?: Set<string>;
 }
 
 export default function MediaGrid({
@@ -36,6 +38,8 @@ export default function MediaGrid({
   onLoadMore,
   onThumbClick,
   onTagClick,
+  selectionMode = false,
+  selectedItems = new Set(),
 }: MediaGridProps) {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const moreObserverRef = useRef<IntersectionObserver | null>(null);
@@ -134,6 +138,8 @@ export default function MediaGrid({
                 expanded={expanded}
                 onThumbClick={onThumbClick}
                 onTagClick={onTagClick}
+                selectionMode={selectionMode}
+                selectedItems={selectedItems}
               />
             ))}
           </div>

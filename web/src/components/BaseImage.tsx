@@ -12,6 +12,7 @@ interface BaseImageProps {
   onLoad?: (img: HTMLImageElement) => void;
   showSkeleton?: boolean;
   decoding?: 'sync' | 'async' | 'auto';
+  priority?: boolean; // 优先加载（首屏内容）
 }
 
 // 虚拟列表场景：图片会被卸载/重新挂载。用一个轻量缓存避免"回到视口就闪一下骨架"的体验。
@@ -48,23 +49,24 @@ export default function BaseImage({
   wrapperClassName = '',
   wrapperStyle,
   imgStyle,
-  rootMargin = '240px 0px',
+  rootMargin = '400px 0px', // 增加预加载距离，手机端优化
   onLoad,
   showSkeleton = true,
   decoding = 'async',
+  priority = false,
 }: BaseImageProps) {
   // antd Image 会额外包一层，所以用外层 div 做 IntersectionObserver 的观测目标
   const wrapperRef = useRef<HTMLDivElement>(null);
   const cached = loadedSrcCache.has(src);
-  const [shouldLoad, setShouldLoad] = useState(cached);
+  const [shouldLoad, setShouldLoad] = useState(cached || priority); // 优先级图片立即加载
   const [loaded, setLoaded] = useState(cached);
 
   useEffect(() => {
     // src changed => reset states
     const nextCached = loadedSrcCache.has(src);
-    setShouldLoad(nextCached);
+    setShouldLoad(nextCached || priority);
     setLoaded(nextCached);
-  }, [src]);
+  }, [src, priority]);
 
   useEffect(() => {
     const el = wrapperRef.current;
@@ -94,15 +96,22 @@ export default function BaseImage({
   return (
     <div ref={wrapperRef} className={`relative ${wrapperClassName} `} style={wrapperStyle}>
       {!loaded && showSkeleton && (
-        <div className="absolute inset-0 bg-white/10 animate-pulse" aria-hidden="true"></div>
+        <div
+          className="absolute inset-0 bg-gradient-to-br from-white/8 via-white/5 to-white/8"
+          aria-hidden="true"
+          style={{
+            backgroundSize: '200% 200%',
+            animation: 'shimmer 2s ease-in-out infinite',
+          }}
+        ></div>
       )}
       <Image
         preview={false}
         alt={alt}
-        loading="lazy"
+        loading={priority ? 'eager' : 'lazy'}
         decoding={decoding}
         src={shouldLoad ? src : undefined}
-        className={`w-full block ${loaded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-200`}
+        className={`w-full block ${loaded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`}
         // className/imgStyle 语义保持：原 className 主要是给 img 的
         classNames={{ image: className }}
         styles={{ image: { width: '100%', height: 'auto', ...(imgStyle || {}) } }}

@@ -7,6 +7,8 @@ interface TopbarProps {
   activeType: string;
   activeDirId: string;
   activeTag: string;
+  activeTags: string[];
+  tagFilterMode: 'AND' | 'OR';
   tagStats: TagStat[];
   tagStatsLoading: boolean;
   tagStatsError: string | null;
@@ -20,10 +22,15 @@ interface TopbarProps {
   onTypeChange: (type: string) => void;
   onDirChange: (dirId: string) => void;
   onTagChange: (tag: string) => void;
+  onTagsChange: (tags: string[]) => void;
+  onTagFilterModeChange: (mode: 'AND' | 'OR') => void;
   onFeedClick: () => void;
   onRefresh: () => void;
   onFullScan: () => Promise<any>;
   fullScanLoading: boolean;
+  selectionMode: boolean;
+  selectedCount: number;
+  onToggleSelectionMode: () => void;
   onExpandedChange: (expanded: boolean) => void;
   onCollapsedChange: (collapsed: boolean) => void;
   onViewModeChange: (mode: 'masonry' | 'album' | 'publisher') => void;
@@ -37,6 +44,8 @@ export default function Topbar({
   activeType,
   activeDirId,
   activeTag,
+  activeTags,
+  tagFilterMode,
   tagStats,
   tagStatsLoading,
   tagStatsError,
@@ -50,10 +59,15 @@ export default function Topbar({
   onTypeChange,
   onDirChange,
   onTagChange,
+  onTagsChange,
+  onTagFilterModeChange,
   onFeedClick,
   onRefresh,
   onFullScan,
   fullScanLoading,
+  selectionMode,
+  selectedCount,
+  onToggleSelectionMode,
   onExpandedChange,
   onCollapsedChange,
   onViewModeChange,
@@ -67,6 +81,18 @@ export default function Topbar({
   const [tagValue, setTagValue] = React.useState(activeTag);
   const [tagModalOpen, setTagModalOpen] = React.useState(false);
   const [tagSearch, setTagSearch] = React.useState('');
+
+  // 搜索历史记录
+  const [searchHistory, setSearchHistory] = React.useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('search_history');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showSearchSuggestions, setShowSearchSuggestions] = React.useState(false);
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     onQChangeRef.current = onQChange;
@@ -131,11 +157,47 @@ export default function Topbar({
     if (qTimerRef.current) clearTimeout(qTimerRef.current);
     qTimerRef.current = window.setTimeout(() => {
       onQChangeRef.current(qValue);
+      // 保存搜索历史
+      if (qValue.trim()) {
+        const newHistory = [qValue.trim(), ...searchHistory.filter(h => h !== qValue.trim())].slice(0, 10);
+        setSearchHistory(newHistory);
+        try {
+          localStorage.setItem('search_history', JSON.stringify(newHistory));
+        } catch {}
+      }
     }, 160);
     return () => {
       if (qTimerRef.current) clearTimeout(qTimerRef.current);
     };
-  }, [qValue]);
+  }, [qValue, searchHistory]);
+
+  // 点击外部关闭搜索建议
+  React.useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchInputRef.current && !searchInputRef.current.contains(e.target as Node)) {
+        setShowSearchSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // 搜索建议列表（历史记录 + 作者建议）
+  const searchSuggestions = React.useMemo(() => {
+    const suggestions: Array<{ type: 'history' | 'author' | 'tag'; value: string; label: string }> = [];
+
+    // 添加历史记录
+    searchHistory.forEach(h => {
+      if (h.toLowerCase().includes(qValue.toLowerCase()) || !qValue) {
+        suggestions.push({ type: 'history', value: h, label: h });
+      }
+    });
+
+    // 添加作者建议（从当前目录列表推断）
+    // 这里简化处理，实际可以从 API 获取作者列表
+
+    return suggestions.slice(0, 8);
+  }, [qValue, searchHistory]);
 
   return (
     <header ref={headerRef as any} className={`topbar ${collapsed ? 'collapsed' : ''}`}>
@@ -158,14 +220,16 @@ export default function Topbar({
       </div>
 
       <div className="controls">
-        <div className="search">
+        <div className="search" style={{ position: 'relative' }}>
           <input
+            ref={searchInputRef}
             id="q"
             type="search"
             placeholder={viewMode === 'publisher' ? '搜索发布者（仅匹配发布者名）…' : '搜索：发布人 / 主题 / 类型...'}
             autoComplete="off"
             value={qValue}
             onChange={(e) => setQValue(e.target.value)}
+            onFocus={() => setShowSearchSuggestions(true)}
           />
           <button
             id="clearQ"
@@ -178,13 +242,37 @@ export default function Topbar({
           >
             ×
           </button>
+
+          {/* 搜索建议下拉框 - 手机端优化 */}
+          {showSearchSuggestions && searchSuggestions.length > 0 && (
+            <div className="searchSuggestions">
+              {searchSuggestions.map((suggestion, idx) => (
+                <button
+                  key={`${suggestion.type}-${idx}`}
+                  className="searchSuggestionItem"
+                  onClick={() => {
+                    setQValue(suggestion.value);
+                    onQChange(suggestion.value);
+                    setShowSearchSuggestions(false);
+                  }}
+                >
+                  <span className="searchSuggestionIcon">
+                    {suggestion.type === 'history' && '🕐'}
+                    {suggestion.type === 'author' && '👤'}
+                    {suggestion.type === 'tag' && '#'}
+                  </span>
+                  <span className="searchSuggestionLabel">{suggestion.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        <div className="search">
+        <div className="search" style={{ position: 'relative' }}>
           <input
             id="tag"
             type="search"
-            placeholder="标签筛选：输入 #自拍 或 自拍（可清空）"
+            placeholder={activeTags.length > 0 ? `已选 ${activeTags.length} 个标签 (${tagFilterMode})` : "标签筛选：输入 #自拍 或 自拍（可清空）"}
             autoComplete="off"
             value={tagValue}
             onChange={(e) => {
@@ -192,14 +280,23 @@ export default function Topbar({
               setTagValue(v);
               onTagChange(v);
             }}
+            disabled={activeTags.length > 0}
+            style={activeTags.length > 0 ? {
+              backgroundColor: 'rgba(var(--accent-rgb), 0.15)',
+              cursor: 'not-allowed',
+              color: 'rgba(255,255,255,0.85)'
+            } : undefined}
           />
           <button
             id="clearTag"
             className="iconBtn"
-            title="清空标签"
+            title={activeTags.length > 0 ? "清空多标签筛选" : "清空标签"}
             onClick={() => {
               setTagValue('');
               onTagChange('');
+              if (activeTags.length > 0) {
+                onTagsChange([]);
+              }
             }}
           >
             ×
@@ -286,6 +383,14 @@ export default function Topbar({
             刷新
           </button>
           <button
+            id="selection"
+            className={`btn ${selectionMode ? 'active' : 'ghost'}`}
+            title={selectionMode ? `已选择 ${selectedCount} 项` : '批量操作'}
+            onClick={onToggleSelectionMode}
+          >
+            {selectionMode ? `选择 (${selectedCount})` : '批量'}
+          </button>
+          <button
             id="fullScan"
             className="btn ghost"
             disabled={fullScanLoading}
@@ -299,19 +404,47 @@ export default function Topbar({
                 centered: true,
                 okButtonProps: { disabled: fullScanLoading },
                 onOk: async () => {
-                  const hide = message.loading({ content: '全量扫描中…', duration: 0 });
                   try {
                     const r = await onFullScan();
-                    hide();
                     const scanned = r?.scannedDirs ?? '-';
                     const added = r?.added ?? '-';
                     const updated = r?.updated ?? '-';
                     const deleted = r?.deleted ?? '-';
-                    message.success(`扫描完成：dirs=${scanned} added=${added} updated=${updated} deleted=${deleted}`);
+
+                    // 如果有新增内容，特别提示
+                    if (added > 0) {
+                      message.success({
+                        content: `✨ 扫描完成：发现 ${added} 个新增文件！`,
+                        description: `目录: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
+                        duration: 6,
+                      });
+                    } else if (updated > 0) {
+                      message.success({
+                        content: `✅ 扫描完成：更新了 ${updated} 个文件`,
+                        description: `目录: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
+                        duration: 5,
+                      });
+                    } else if (deleted > 0) {
+                      message.warning({
+                        content: `🗑️ 扫描完成：删除了 ${deleted} 个文件`,
+                        description: `目录: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
+                        duration: 5,
+                      });
+                    } else {
+                      message.info({
+                        content: '✓ 扫描完成：没有变化',
+                        description: `已扫描 ${scanned} 个目录，所有文件都是最新的`,
+                        duration: 4,
+                      });
+                    }
                   } catch (e) {
-                    hide();
-                    message.error(`扫描失败：${String(e instanceof Error ? e.message : e)}`);
-                    throw e;
+                    const errorMsg = String(e instanceof Error ? e.message : e);
+                    message.error({
+                      content: '❌ 扫描失败',
+                      description: errorMsg || '未知错误，请检查网络连接或服务器状态',
+                      duration: 8,
+                    });
+                    console.error('Scan error:', e);
                   }
                 },
               });
@@ -334,7 +467,23 @@ export default function Topbar({
       </div>
 
       <Modal
-        title="标签库（点击筛选）"
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <span>标签库（多选筛选）</span>
+            {activeTags.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  className="btn ghost compact"
+                  onClick={() => onTagFilterModeChange(tagFilterMode === 'AND' ? 'OR' : 'AND')}
+                  title={tagFilterMode === 'AND' ? '切换到 OR 模式（满足任一标签）' : '切换到 AND 模式（同时满足所有标签）'}
+                  style={{ fontSize: 11, padding: '4px 8px' }}
+                >
+                  {tagFilterMode === 'AND' ? 'AND (且)' : 'OR (或)'}
+                </button>
+              </div>
+            )}
+          </div>
+        }
         open={tagModalOpen}
         onCancel={() => setTagModalOpen(false)}
         footer={null}
@@ -362,23 +511,51 @@ export default function Topbar({
           </button>
         </div>
 
-        <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'rgba(255,255,255,.75)' }}>
-            当前筛选：{activeTag || '-'} | 显示：{filteredTagStats.length}/{safeTagStats.length}
+            {activeTags.length > 0 ? (
+              <>已选 {activeTags.length} 个标签 ({tagFilterMode}) | 显示：{filteredTagStats.length}/{safeTagStats.length}</>
+            ) : (
+              <>当前筛选：{activeTag || '-'} | 显示：{filteredTagStats.length}/{safeTagStats.length}</>
+            )}
           </div>
-          {activeTag && (
+          {(activeTags.length > 0 || activeTag) && (
             <button
               className="btn ghost compact"
               onClick={() => {
                 setTagValue('');
                 onTagChange('');
+                onTagsChange([]);
               }}
-              title="清空当前标签筛选"
+              title="清空所有标签筛选"
             >
               清空筛选
             </button>
           )}
         </div>
+
+        {/* 已选标签显示 */}
+        {activeTags.length > 0 && (
+          <div style={{ marginBottom: 12, padding: '8px 12px', background: 'rgba(255,255,255,.05)', borderRadius: 8 }}>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,.6)', marginBottom: 6 }}>已选标签：</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {activeTags.map((tag) => (
+                <button
+                  key={tag}
+                  className="chip active"
+                  onClick={() => {
+                    const newTags = activeTags.filter(t => t !== tag);
+                    onTagsChange(newTags);
+                  }}
+                  style={{ fontSize: 12, padding: '4px 10px', cursor: 'pointer' }}
+                  title={`点击移除：${tag}`}
+                >
+                  {tag} ×
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, maxHeight: '56vh', overflow: 'auto', paddingRight: 4 }}>
           {tagStatsLoading && (
@@ -404,17 +581,28 @@ export default function Topbar({
           )}
           {filteredTagStats.map((t) => {
             const label = `#${t.tag}`;
-            const isActive = activeTag.trim() === label || activeTag.trim() === t.tag;
+            const isActiveInMulti = activeTags.includes(label) || activeTags.includes(t.tag);
+            const isActiveSingle = activeTag.trim() === label || activeTag.trim() === t.tag;
+            const isActive = isActiveInMulti || isActiveSingle;
             return (
               <button
                 key={t.tag}
                 className={`chip ${isActive ? 'active' : ''}`}
                 style={isActive ? undefined : tagTintStyle(label)}
-                title={`${label} | groups=${t.groupCount} items=${t.itemCount}`}
+                title={`${label} | groups=${t.groupCount} items=${t.itemCount}${isActiveInMulti ? ' (已选)' : ''}`}
                 onClick={() => {
-                  setTagValue(label);
-                  onTagChange(label);
-                  setTagModalOpen(false);
+                  // 多选模式：添加到 activeTags
+                  if (activeTags.length > 0 || isActiveInMulti) {
+                    const newTags = isActiveInMulti
+                      ? activeTags.filter(tag => tag !== label && tag !== t.tag)
+                      : [...activeTags, label];
+                    onTagsChange(newTags);
+                  } else {
+                    // 单选模式：使用原有逻辑
+                    setTagValue(label);
+                    onTagChange(label);
+                    setTagModalOpen(false);
+                  }
                 }}
               >
                 {label} ({t.groupCount})

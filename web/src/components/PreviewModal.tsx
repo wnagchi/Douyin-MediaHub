@@ -38,7 +38,44 @@ export default function PreviewModal({
   const [warnExtra, setWarnExtra] = useState('');
   const [showInspectInfo, setShowInspectInfo] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(true); // 默认静音（feedMode 默认静音）
+
+  // 智能静音策略：
+  // 1. 默认静音（避免尴尬）
+  // 2. 用户取消静音后，3分钟内切换视频保持状态
+  // 3. 超过3分钟自动恢复静音
+  const [isMuted, setIsMuted] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('video_muted_session');
+      const timestamp = sessionStorage.getItem('video_muted_timestamp');
+
+      if (saved !== null && timestamp) {
+        const lastUpdate = parseInt(timestamp, 10);
+        const now = Date.now();
+        const threeMinutes = 3 * 60 * 1000; // 3分钟
+
+        // 如果在3分钟内，保持上次的状态
+        if (now - lastUpdate < threeMinutes) {
+          return saved === '1';
+        }
+      }
+
+      // 默认静音或超时后恢复静音
+      return true;
+    } catch {
+      return true;
+    }
+  });
+
+  // 播放速度偏好可以长期保存（不会造成尴尬）
+  const [playbackRate, setPlaybackRate] = useState(() => {
+    try {
+      const saved = localStorage.getItem('video_playback_rate');
+      return saved ? parseFloat(saved) : 1.0;
+    } catch {
+      return 1.0;
+    }
+  });
+
   const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
   const [imagePreviewCurrent, setImagePreviewCurrent] = useState(0);
   const [deleting, setDeleting] = useState(false);
@@ -81,6 +118,28 @@ export default function PreviewModal({
   const bindVideoEl = useCallback((el: HTMLVideoElement | null) => {
     setVideoEl(el);
   }, []);
+
+  // 保存静音偏好到 sessionStorage，并记录时间戳
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('video_muted_session', isMuted ? '1' : '0');
+      sessionStorage.setItem('video_muted_timestamp', String(Date.now()));
+    } catch {}
+  }, [isMuted]);
+
+  // 保存播放速度偏好到 localStorage（长期保存）
+  useEffect(() => {
+    try {
+      localStorage.setItem('video_playback_rate', String(playbackRate));
+    } catch {}
+  }, [playbackRate]);
+
+  // 应用播放速度到视频元素
+  useEffect(() => {
+    if (videoEl && playbackRate) {
+      videoEl.playbackRate = playbackRate;
+    }
+  }, [videoEl, playbackRate]);
 
   const group = groups[groupIdx];
   if (!group) {
@@ -170,10 +229,10 @@ export default function PreviewModal({
       return;
     }
     const v = videoEl;
-    // 初始化静音状态：feedMode 默认静音，普通预览模式默认不静音
-    const initialMuted = true; // 所有模式默认静音
-    setIsMuted(initialMuted);
-    v.muted = initialMuted;
+    // 使用保存的静音偏好
+    v.muted = isMuted;
+    // 应用播放速度
+    v.playbackRate = playbackRate;
 
     const showWarn = (extra?: string) => {
       setWarnVisible(true);
@@ -554,6 +613,23 @@ export default function PreviewModal({
                     />
                   </svg>
                 )}
+              </button>
+              {/* 播放速度控制按钮 */}
+              <button
+                className="customSpeedButton"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+                  const currentIndex = speeds.indexOf(playbackRate);
+                  const nextIndex = (currentIndex + 1) % speeds.length;
+                  setPlaybackRate(speeds[nextIndex]);
+                }}
+                title={`播放速度: ${playbackRate}x`}
+                aria-label={`播放速度: ${playbackRate}x`}
+              >
+                <span style={{ fontSize: '14px', fontWeight: 'bold' }}>
+                  {playbackRate}x
+                </span>
               </button>
             </div>
             {warnVisible && (
