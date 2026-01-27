@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Masonry } from 'antd';
+import { Masonry } from 'masonic';
 import type { MediaGroup, MediaItem } from '../api';
 import { escHtml } from '../utils';
 import BaseImage from './BaseImage';
@@ -82,8 +82,7 @@ export default function MediaTiles({
     const isMobile = w > 0 ? w < 768 : true;
     const gap = isMobile ? 12 : 16;
     const minCol = expanded ? 220 : 180;
-    const columnCount = isMobile ? 2 : Math.max(3, Math.floor((Math.max(w, 1) + gap) / (minCol + gap)));
-    return { isMobile, gap, minCol, columnCount };
+    return { isMobile, gap, minCol };
   }, [containerWidth, expanded]);
 
   const itemKey = (t: TileItem) => `${t.groupIdx}-${t.itemIdx}`;
@@ -159,18 +158,22 @@ export default function MediaTiles({
     );
   }
 
+  const MasonryCard = useCallback(({ data }: { data: TileItem }) => renderTile(data), [renderTile]);
+
   return (
     <div ref={containerRef}>
       <Masonry
-        // 参考文档：https://ant.design/components/masonry-cn
-        columns={{ xs: 2, sm: 3, md: layout.columnCount }}
-        gutter={{ xs: 12, md: 16 }}
-        fresh
-        items={items.map((it) => ({
-          key: itemKey(it),
-          data: it,
-          children: renderTile(it),
-        }))}
+        items={items}
+        render={MasonryCard}
+        itemKey={itemKey}
+        columnWidth={layout.minCol}
+        columnGutter={layout.gap}
+        rowGutter={layout.gap}
+        columnCount={layout.isMobile ? 2 : undefined}
+        maxColumnCount={layout.isMobile ? 2 : undefined}
+        overscanBy={layout.isMobile ? 1 : 2}
+        scrollFps={layout.isMobile ? 10 : 12}
+        itemHeightEstimate={expanded ? 260 : 220}
       />
 
       <div ref={sentinelRef} style={{ height: '1px', gridColumn: '1 / -1' }} aria-hidden="true" />
@@ -186,4 +189,3 @@ export default function MediaTiles({
     </div>
   );
 }
-

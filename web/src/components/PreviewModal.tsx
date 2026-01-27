@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image } from 'antd';
 import { Swiper, SwiperSlide } from 'swiper/react';
+import { Virtual } from 'swiper/modules';
 import 'swiper/css';
 import { MediaGroup, deleteMediaItems } from '../api';
 import { escHtml, clamp } from '../utils';
@@ -772,6 +773,7 @@ export default function PreviewModal({
     return (
       <Swiper
         key={`item-swiper-${groupIdx}`}
+        modules={[Virtual]}
         direction="horizontal"
         nested
         observer
@@ -779,6 +781,7 @@ export default function PreviewModal({
         observeSlideChildren
         slidesPerView={1}
         initialSlide={clampedIdx}
+        virtual={{ addSlidesBefore: 1, addSlidesAfter: 1 }}
         className="itemSwiper"
         onSwiper={(instance) => {
           lastItemIdxRef.current = instance.activeIndex;
@@ -794,7 +797,9 @@ export default function PreviewModal({
         }}
       >
         {items.map((_, idx) => (
-          <SwiperSlide key={`item-${idx}`}>{renderMedia(group, idx, idx === clampedIdx)}</SwiperSlide>
+          <SwiperSlide key={`item-${idx}`} virtualIndex={idx}>
+            {renderMedia(group, idx, idx === clampedIdx)}
+          </SwiperSlide>
         ))}
       </Swiper>
     );
