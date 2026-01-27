@@ -157,19 +157,26 @@ export default function Topbar({
     if (qTimerRef.current) clearTimeout(qTimerRef.current);
     qTimerRef.current = window.setTimeout(() => {
       onQChangeRef.current(qValue);
-      // 保存搜索历史
-      if (qValue.trim()) {
-        const newHistory = [qValue.trim(), ...searchHistory.filter(h => h !== qValue.trim())].slice(0, 10);
-        setSearchHistory(newHistory);
-        try {
-          localStorage.setItem('search_history', JSON.stringify(newHistory));
-        } catch {}
-      }
+      const trimmed = qValue.trim();
+      if (!trimmed) return;
+      setSearchHistory((prev) => {
+        const next = [trimmed, ...prev.filter((h) => h !== trimmed)].slice(0, 10);
+        if (prev.length === next.length && prev.every((v, i) => v === next[i])) {
+          return prev;
+        }
+        return next;
+      });
     }, 160);
     return () => {
       if (qTimerRef.current) clearTimeout(qTimerRef.current);
     };
-  }, [qValue, searchHistory]);
+  }, [qValue]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('search_history', JSON.stringify(searchHistory));
+    } catch {}
+  }, [searchHistory]);
 
   // 点击外部关闭搜索建议
   React.useEffect(() => {
