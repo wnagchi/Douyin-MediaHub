@@ -504,6 +504,43 @@ function App() {
       };
     });
   };
+
+  const handleOpenImmersive = useCallback(
+    (groupIdx: number, itemIdx: number) => {
+      if (state.selectionMode) return;
+      const group = state.groups[groupIdx];
+      if (!group) return;
+      const items = group.items || [];
+      let targetIdx = itemIdx;
+      if (targetIdx < 0 || targetIdx >= items.length) {
+        const preferred = getPreferredItemIndex(group);
+        targetIdx = preferred >= 0 ? preferred : 0;
+      }
+      const item = items[targetIdx];
+      if (!item?.dirId || !item.filename) return;
+      const qs = new URLSearchParams();
+      qs.set('fid', item.dirId);
+      qs.set('fn', item.filename);
+      qs.set('g', String(groupIdx));
+      qs.set('i', String(targetIdx));
+      if (state.q.trim()) qs.set('q', state.q.trim());
+      if (state.activeType && state.activeType !== '全部') qs.set('type', state.activeType);
+      if (state.activeDirId && state.activeDirId !== 'all') qs.set('dirId', state.activeDirId);
+      if (state.activeTag && state.activeTag.trim()) qs.set('tag', state.activeTag.trim());
+      if (state.sortMode) qs.set('sort', state.sortMode);
+      navigate({ pathname: '/feed', search: `?${qs.toString()}` });
+    },
+    [
+      navigate,
+      state.activeDirId,
+      state.activeTag,
+      state.activeType,
+      state.groups,
+      state.q,
+      state.selectionMode,
+      state.sortMode,
+    ]
+  );
   const handleCloseModal = () => {
     setState((prev) => ({
       ...prev,
@@ -688,19 +725,7 @@ function App() {
           if (!state.groups.length) return;
           const g0 = state.groups[0];
           const idx = getPreferredItemIndex(g0);
-          const item = g0?.items?.[idx >= 0 ? idx : 0];
-          if (!item?.dirId || !item.filename) return;
-          const qs = new URLSearchParams();
-          qs.set('fid', item.dirId);
-          qs.set('fn', item.filename);
-          qs.set('g', '0');
-          qs.set('i', String(idx >= 0 ? idx : 0));
-          if (state.q.trim()) qs.set('q', state.q.trim());
-          if (state.activeType && state.activeType !== '全部') qs.set('type', state.activeType);
-          if (state.activeDirId && state.activeDirId !== 'all') qs.set('dirId', state.activeDirId);
-          if (state.activeTag && state.activeTag.trim()) qs.set('tag', state.activeTag.trim());
-          if (state.sortMode) qs.set('sort', state.sortMode);
-          navigate({ pathname: '/feed', search: `?${qs.toString()}` });
+          handleOpenImmersive(0, idx >= 0 ? idx : 0);
         }}
         onRefresh={() => {
           if (state.viewMode === 'publisher') return loadAuthorsMeta();
@@ -810,6 +835,7 @@ function App() {
             loadingMore={state.loadingMore}
             onLoadMore={handleLoadMore}
             onOpen={(groupIdx, itemIdx) => handleOpenModal(groupIdx, itemIdx, false)}
+            onImmersiveOpen={handleOpenImmersive}
             selectionMode={state.selectionMode}
             selectedItems={state.selectedItems}
           />
@@ -823,6 +849,7 @@ function App() {
             loadingMore={state.loadingMore}
             onLoadMore={handleLoadMore}
             onThumbClick={(groupIdx, itemIdx) => handleOpenModal(groupIdx, itemIdx, false)}
+            onImmersiveOpen={handleOpenImmersive}
             onTagClick={(tag) => refreshWithOverrides({ activeTag: tag })}
             selectionMode={state.selectionMode}
             selectedItems={state.selectedItems}

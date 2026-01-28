@@ -49,6 +49,29 @@
   backdrop-filter: blur(10px);
   box-shadow: 0 10px 30px rgba(0,0,0,.45);
 }
+.immersiveEntryBtn{
+  position:absolute;
+  top:10px;
+  right:10px;
+  z-index: 6;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.22);
+  background: rgba(0,0,0,.45);
+  color: rgba(255,255,255,.92);
+  font-size:12px;
+  font-weight:600;
+  letter-spacing:0.02em;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  cursor:pointer;
+}
+.immersiveEntryBtn:hover{
+  background: rgba(0,0,0,.62);
+}
+.immersiveEntryBtn:active{
+  transform: scale(0.98);
+}
 .tileTypeBadge{
   display:flex;
   align-items:center;

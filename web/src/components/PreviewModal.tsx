@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image } from 'antd';
-import { Swiper, SwiperSlide } from 'swiper/react';
-import 'swiper/css';
 import { MediaGroup, deleteMediaItems } from '../api';
 import { escHtml, clamp } from '../utils';
 import { inspectMedia } from '../api';
@@ -19,6 +17,10 @@ interface PreviewModalProps {
   onNeedMore?: () => void; // 仅沉浸路由页：触底时提前加载下一页，避免卡在尾部
   onFeedModeChange?: (feedMode: boolean) => void;
   onReload?: () => void;
+  feedListMeta?: {
+    index: number;
+    total: number;
+  };
 }
 
 export default function PreviewModal({
@@ -33,6 +35,7 @@ export default function PreviewModal({
   onNeedMore,
   onFeedModeChange,
   onReload,
+  feedListMeta,
 }: PreviewModalProps) {
   const [warnVisible, setWarnVisible] = useState(false);
   const [warnExtra, setWarnExtra] = useState('');
@@ -80,7 +83,6 @@ export default function PreviewModal({
   const [imagePreviewCurrent, setImagePreviewCurrent] = useState(0);
   const [deleting, setDeleting] = useState(false);
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
-  const lastItemIdxRef = useRef(itemIdx);
   const modalRef = useRef<HTMLDivElement>(null);
   const bodyScrollYRef = useRef<number>(0);
   const thumbStripRef = useRef<HTMLDivElement>(null);
@@ -161,6 +163,9 @@ export default function PreviewModal({
   );
   const hint = `${clampedIdx + 1}/${items.length}  |  ${item.filename}`;
   const canThumbStrip = !feedMode && items.length > 1;
+  const feedPositionText = feedListMeta
+    ? `${feedListMeta.index + 1}/${feedListMeta.total}`
+    : `${clampedIdx + 1}/${items.length}`;
 
   // 仅图片参与 antd 的预览组：预览层可左右切换其它图片，并反向联动到主视图
   const imageEntries = items
@@ -427,10 +432,6 @@ export default function PreviewModal({
     setWarnExtra('');
     setShowInspectInfo(false);
   }, [groupIdx, clampedIdx]);
-
-  useEffect(() => {
-    lastItemIdxRef.current = clampedIdx;
-  }, [clampedIdx]);
 
   const handleFeedPointerDown = (e: React.PointerEvent) => {
     if (!feedMode) return;
@@ -756,7 +757,7 @@ export default function PreviewModal({
             </div>
             <div className="feedSub">
               {escHtml(
-                `${targetGroup.timeText || ''} | ${targetGroup.groupType || ''} | ${currentIdx + 1}/${items.length} | 上下滑切换`
+                `${targetGroup.timeText || ''} | ${targetGroup.groupType || ''} | ${feedPositionText} | 上下滑切换`
               )}
             </div>
           </div>
@@ -765,40 +766,7 @@ export default function PreviewModal({
     );
   };
 
-  // 单 group 模式：只渲染当前 group（上下切换通过手势触发数据切换），不再需要 inactive/far 的 slide 渲染
-
-  const renderFeedActiveSlide = () => {
-    if (items.length <= 1) return renderMedia(group, clampedIdx, true);
-    return (
-      <Swiper
-        key={`item-swiper-${groupIdx}`}
-        direction="horizontal"
-        nested
-        observer
-        observeParents
-        observeSlideChildren
-        slidesPerView={1}
-        initialSlide={clampedIdx}
-        className="itemSwiper"
-        onSwiper={(instance) => {
-          lastItemIdxRef.current = instance.activeIndex;
-        }}
-        onSlideChange={(instance) => {
-          const next = instance.activeIndex;
-          const prev = lastItemIdxRef.current;
-          const delta = next - prev;
-          if (delta !== 0) {
-            onStep(delta);
-          }
-          lastItemIdxRef.current = next;
-        }}
-      >
-        {items.map((_, idx) => (
-          <SwiperSlide key={`item-${idx}`}>{renderMedia(group, idx, idx === clampedIdx)}</SwiperSlide>
-        ))}
-      </Swiper>
-    );
-  };
+  // 沉浸模式：只渲染当前项（上下切换通过手势触发数据切换），避免大规模 DOM/媒体开销
 
   const renderAlbumBody = () => {
     // 不使用 Swiper，直接渲染当前索引的媒体项
@@ -814,7 +782,7 @@ export default function PreviewModal({
       onPointerCancel={handleFeedPointerUp}
       onWheel={handleFeedWheel}
     >
-      <div className="feedSlide active">{renderFeedActiveSlide()}</div>
+      <div className="feedSlide active">{renderMedia(group, clampedIdx, true)}</div>
     </div>
   );
 

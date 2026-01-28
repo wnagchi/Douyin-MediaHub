@@ -20,6 +20,7 @@ interface MediaTilesProps {
   loadingMore: boolean;
   onLoadMore: () => void;
   onOpen: (groupIdx: number, itemIdx: number) => void;
+  onImmersiveOpen: (groupIdx: number, itemIdx: number) => void;
   selectionMode?: boolean;
   selectedItems?: Set<string>;
 }
@@ -33,6 +34,7 @@ export default function MediaTiles({
   loadingMore,
   onLoadMore,
   onOpen,
+  onImmersiveOpen,
   selectionMode = false,
   selectedItems = new Set(),
 }: MediaTilesProps) {
@@ -114,6 +116,20 @@ export default function MediaTiles({
             selectionMode ? 'selectionMode' : ''
           } ${isSelected ? 'selected' : ''}`}
         >
+          {!selectionMode && (
+            <button
+              type="button"
+              className="immersiveEntryBtn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onImmersiveOpen(data.groupIdx, data.itemIdx);
+              }}
+              title="进入沉浸模式"
+              aria-label="进入沉浸模式"
+            >
+              沉浸
+            </button>
+          )}
           {isVideo || data.item.kind === 'image' ? (
             <BaseImage
               wrapperClassName="w-full block"
@@ -134,7 +150,7 @@ export default function MediaTiles({
         </div>
       );
     },
-    [onOpen, selectionMode, selectedItems]
+    [onImmersiveOpen, onOpen, selectionMode, selectedItems]
   );
 
   if (loading && !items.length) {

@@ -23,6 +23,7 @@ interface MediaGridProps {
   loadingMore: boolean;
   onLoadMore: () => void;
   onThumbClick: (groupIdx: number, itemIdx: number) => void;
+  onImmersiveOpen: (groupIdx: number, itemIdx: number) => void;
   onTagClick?: (tag: string) => void;
   selectionMode?: boolean;
   selectedItems?: Set<string>;
@@ -37,6 +38,7 @@ export default function MediaGrid({
   loadingMore,
   onLoadMore,
   onThumbClick,
+  onImmersiveOpen,
   onTagClick,
   selectionMode = false,
   selectedItems = new Set(),
@@ -137,6 +139,7 @@ export default function MediaGrid({
                 groupIdx={groupIdx}
                 expanded={expanded}
                 onThumbClick={onThumbClick}
+                onImmersiveOpen={onImmersiveOpen}
                 onTagClick={onTagClick}
                 selectionMode={selectionMode}
                 selectedItems={selectedItems}

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useNavigationType, useSearchParams } from 'react-router-dom';
 import PreviewModal from '../components/PreviewModal';
 import { fetchResources, type MediaGroup, type PaginationInfo } from '../api';
-import { getPreferredItemIndex } from '../utils/media';
 
 type PageState = {
   loading: boolean;
@@ -14,6 +13,12 @@ type PageState = {
   groupIdx: number;
   itemIdx: number;
   found: boolean;
+};
+
+type FlatItem = {
+  id: string;
+  groupIdx: number;
+  itemIdx: number;
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -73,6 +78,8 @@ export default function FeedPage() {
   const stateRef = useRef<PageState>(state);
   const lastBootstrapKeyRef = useRef<string>('');
   const inFlightPagesRef = useRef<Set<number>>(new Set());
+  const flatItemsRef = useRef<FlatItem[]>([]);
+  const shownInitialRef = useRef(false);
 
   // keep latest state for async flows (avoid stale closure on iOS fast swipes)
   useEffect(() => {
@@ -85,6 +92,40 @@ export default function FeedPage() {
     return () => {
       document.body.classList.remove('immersiveRoute');
     };
+  }, []);
+
+  const flatItems = useMemo(() => {
+    const list: FlatItem[] = [];
+    state.groups.forEach((group, groupIdx) => {
+      const items = group?.items || [];
+      items.forEach((item, itemIdx) => {
+        if (!item) return;
+        const id = item.dirId && item.filename ? `${item.dirId}|${item.filename}` : '';
+        list.push({ id, groupIdx, itemIdx });
+      });
+    });
+    return list;
+  }, [state.groups]);
+
+  useEffect(() => {
+    flatItemsRef.current = flatItems;
+  }, [flatItems]);
+
+  const getFlatIndex = useCallback((groups: MediaGroup[], groupIdx: number, itemIdx: number, list: FlatItem[]) => {
+    if (!list.length) return -1;
+    const g = groups[groupIdx];
+    const it = g?.items?.[itemIdx];
+    if (it?.dirId && it.filename) {
+      const id = `${it.dirId}|${it.filename}`;
+      for (let i = 0; i < list.length; i++) {
+        if (list[i].id === id) return i;
+      }
+    }
+    for (let i = 0; i < list.length; i++) {
+      const entry = list[i];
+      if (entry.groupIdx === groupIdx && entry.itemIdx === itemIdx) return i;
+    }
+    return -1;
   }, []);
 
 
@@ -125,7 +166,7 @@ export default function FeedPage() {
       if (filters.dirId) params.dirId = filters.dirId;
       if (filters.tag) params.tag = filters.tag;
       if (filters.sort) params.sort = filters.sort;
-      return fetchResources(params);
+      return fetchResources(params, { forceRefresh: true, skipCache: true });
     },
     [filters.dirId, filters.q, filters.sort, filters.tag, filters.type]
   );
@@ -133,22 +174,15 @@ export default function FeedPage() {
   // 首次加载/filters变化：拉取直到找到目标（或达到上限）
   useEffect(() => {
     let cancelled = false;
-    const nav = navType; // snapshot for log readability
-
-    // 我们会在滑动时用 navigate(..., { replace:true }) 更新 URL 方便复制链接；
-    // 这种 REPLACE 不应触发“重置并全量重拉”，否则会造成滑动中断/卡住。
-    if (nav === 'REPLACE') {
-      return;
-    }
-
-    // 关键：即使 navType 是 POP（iOS 手势/历史前进后退），只要 fid/fn+filters 没变，就不要清空并重拉。
-    // 否则会出现“滑到某个位置后突然重置为 loading，导致无法继续上滑到下一条”。
-    if (lastBootstrapKeyRef.current === bootstrapKey) {
+    // 关键：只要 fid/fn+filters 没变，就不要清空并重拉。
+    // 但在 StrictMode 首次双执行时，如果还在 loading，允许重新触发，避免被清空导致卡住。
+    if (lastBootstrapKeyRef.current === bootstrapKey && !stateRef.current.loading) {
       return;
     }
 
     lastBootstrapKeyRef.current = bootstrapKey;
     inFlightPagesRef.current.clear();
+    shownInitialRef.current = false;
 
     const seq = ++requestSeq.current;
 
@@ -194,6 +228,23 @@ export default function FeedPage() {
           return;
         }
 
+        if (!shownInitialRef.current && all.length) {
+          const fallback = findTarget(all);
+          if (fallback) {
+            setState({
+              loading: false,
+              loadingMore: false,
+              error: null,
+              groups: all,
+              pagination,
+              groupIdx: fallback.groupIdx,
+              itemIdx: fallback.itemIdx,
+              found: false,
+            });
+            shownInitialRef.current = true;
+          }
+        }
+
         if (!pagination?.hasMore) break;
         page += 1;
       }
@@ -236,7 +287,7 @@ export default function FeedPage() {
     return () => {
       cancelled = true;
     };
-  }, [bootstrapKey, fetchPage, findTarget, navType]);
+  }, [bootstrapKey, fetchPage, findTarget]);
 
   const loadMoreIfNeeded = useCallback(async () => {
     // 同步 guard：避免 loading=true 时仍继续发请求导致并发/重复追加
@@ -247,8 +298,11 @@ export default function FeedPage() {
     if (!cur.pagination?.hasMore) {
       return;
     }
+    const list = flatItemsRef.current;
+    const curIdx = getFlatIndex(cur.groups, cur.groupIdx, cur.itemIdx, list);
+    if (curIdx < 0) return;
     // near the end: prefetch next page
-    if (cur.groups.length - cur.groupIdx > 12) {
+    if (list.length - curIdx > 18) {
       return;
     }
 
@@ -284,18 +338,21 @@ export default function FeedPage() {
     } finally {
       inFlightPagesRef.current.delete(nextPage);
     }
-  }, [fetchPage]);
+  }, [fetchPage, getFlatIndex]);
 
-  // 组滑到靠后时预取更多
+  // 列表滑到靠后时预取更多
   useEffect(() => {
     if (!state.groups.length) return;
     if (!state.pagination?.hasMore) return;
+    const list = flatItemsRef.current;
+    const curIdx = getFlatIndex(state.groups, state.groupIdx, state.itemIdx, list);
+    if (curIdx < 0) return;
     // 提前一点预取，避免用户快速上滑直接撞到“已加载末尾”
-    if (state.groups.length - state.groupIdx <= 12) {
+    if (list.length - curIdx <= 18) {
       loadMoreIfNeeded();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.groupIdx, state.groups.length, state.pagination?.hasMore]);
+  }, [state.groupIdx, state.itemIdx, state.groups.length, state.pagination?.hasMore]);
 
   // 同步 URL（replace），让“复制链接”永远指向当前媒体
   useEffect(() => {
@@ -316,6 +373,26 @@ export default function FeedPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate, state.groupIdx, state.itemIdx, state.groups]);
+
+  const onClose = () => navigate(-1);
+  const flatIndex = getFlatIndex(state.groups, state.groupIdx, state.itemIdx, flatItems);
+  const feedListMeta = flatIndex >= 0 ? { index: flatIndex, total: flatItems.length } : undefined;
+
+  const stepByList = useCallback(
+    (delta: number) => {
+      setState((prev) => {
+        const list = flatItemsRef.current;
+        if (!list.length) return prev;
+        const curIdx = getFlatIndex(prev.groups, prev.groupIdx, prev.itemIdx, list);
+        if (curIdx < 0) return prev;
+        const nextIdx = clamp(curIdx + delta, 0, list.length - 1);
+        if (nextIdx === curIdx) return prev;
+        const next = list[nextIdx];
+        return { ...prev, groupIdx: next.groupIdx, itemIdx: next.itemIdx };
+      });
+    },
+    [getFlatIndex]
+  );
 
   if (state.loading) {
     return (
@@ -338,8 +415,6 @@ export default function FeedPage() {
       </div>
     );
   }
-
-  const onClose = () => navigate(-1);
 
   return (
     <>
@@ -368,17 +443,10 @@ export default function FeedPage() {
         groupIdx={state.groupIdx}
         itemIdx={state.itemIdx}
         feedMode
+        feedListMeta={feedListMeta}
         onClose={onClose}
         onNeedMore={loadMoreIfNeeded}
-        onStep={(delta) => {
-          setState((prev) => {
-            const g = prev.groups[prev.groupIdx];
-            const items = g?.items || [];
-            const nextIdx = clamp(prev.itemIdx + delta, 0, Math.max(0, items.length - 1));
-            if (nextIdx === prev.itemIdx) return prev;
-            return { ...prev, itemIdx: nextIdx };
-          });
-        }}
+        onStep={stepByList}
         onSetItemIdx={(nextIdx) => {
           setState((prev) => {
             const g = prev.groups[prev.groupIdx];
@@ -388,16 +456,7 @@ export default function FeedPage() {
             return { ...prev, itemIdx: clamped };
           });
         }}
-        onGroupStep={(delta) => {
-          setState((prev) => {
-            const nextGroupIdx = clamp(prev.groupIdx + delta, 0, Math.max(0, prev.groups.length - 1));
-            if (nextGroupIdx === prev.groupIdx) return prev;
-            const nextGroup = prev.groups[nextGroupIdx];
-            const preferred = getPreferredItemIndex(nextGroup);
-            const nextItemIdx = preferred >= 0 ? preferred : 0;
-            return { ...prev, groupIdx: nextGroupIdx, itemIdx: nextItemIdx };
-          });
-        }}
+        onGroupStep={stepByList}
         // 沉浸路由页不需要“切换到预览模式”按钮
         onFeedModeChange={undefined}
         onReload={() => {

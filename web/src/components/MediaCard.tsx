@@ -11,6 +11,7 @@ interface MediaCardProps {
   expanded?: boolean;
   wrapperClassName?: string;
   onThumbClick: (groupIdx: number, itemIdx: number) => void;
+  onImmersiveOpen: (groupIdx: number, itemIdx: number) => void;
   onTagClick?: (tag: string) => void;
   selectionMode?: boolean;
   selectedItems?: Set<string>;
@@ -46,6 +47,7 @@ export default function MediaCard({
   expanded: _expanded = false,
   wrapperClassName,
   onThumbClick,
+  onImmersiveOpen,
   onTagClick,
   selectionMode = false,
   selectedItems = new Set(),
@@ -226,6 +228,20 @@ export default function MediaCard({
               >
                 ▶
               </div>
+            )}
+            {!selectionMode && (
+              <button
+                type="button"
+                className="immersiveEntryBtn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onImmersiveOpen(groupIdx, 0);
+                }}
+                title="进入沉浸模式"
+                aria-label="进入沉浸模式"
+              >
+                沉浸
+              </button>
             )}
             {/* 选择模式下的复选标记 */}
             {selectionMode && (

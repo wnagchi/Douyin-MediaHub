@@ -5,6 +5,7 @@ import {
   invalidationService,
   clearBrowserCache as clearCacheClient,
 } from './cache/client';
+import type { CacheFetchOptions } from './cache/client';
 import type { CacheMeta } from './cache/CacheManager';
 
 export interface MediaDir {
@@ -114,7 +115,13 @@ export interface FetchResourcesParams {
   sort?: 'publish' | 'ingest';
 }
 
-export async function fetchResources(params: FetchResourcesParams = {}): Promise<ResourcesResponse> {
+export interface FetchResourcesOptions
+  extends Pick<CacheFetchOptions, 'forceRefresh' | 'skipCache' | 'allowStaleWhenOffline'> {}
+
+export async function fetchResources(
+  params: FetchResourcesParams = {},
+  cacheOptions: FetchResourcesOptions = {}
+): Promise<ResourcesResponse> {
   const query = new URLSearchParams();
   if (params.page) query.set('page', String(params.page));
   if (params.pageSize) query.set('pageSize', String(params.pageSize));
@@ -127,11 +134,17 @@ export async function fetchResources(params: FetchResourcesParams = {}): Promise
   const qs = query.toString();
   const url = qs ? `/api/resources?${qs}` : '/api/resources';
   const groupKey = buildGroupKey('/api/resources', params, ['page', 'pageSize']);
-  const response = await cachedFetch<ResourcesResponse>(url, {}, {
-    endpoint: '/api/resources',
-    params,
-    groupKey,
-  });
+  const requestOptions: RequestInit = cacheOptions.skipCache ? { cache: 'no-store' } : {};
+  const response = await cachedFetch<ResourcesResponse>(
+    url,
+    requestOptions,
+    {
+      ...cacheOptions,
+      endpoint: '/api/resources',
+      params,
+      groupKey,
+    }
+  );
 
   if (!response.__cache?.cached) {
     const total = response.pagination?.totalItems ?? response.pagination?.total;
