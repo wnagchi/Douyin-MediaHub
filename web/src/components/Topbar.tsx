@@ -35,6 +35,7 @@ interface TopbarProps {
   onCollapsedChange: (collapsed: boolean) => void;
   onViewModeChange: (mode: 'masonry' | 'album' | 'publisher') => void;
   onSortModeChange: (mode: 'publish' | 'ingest') => void;
+  mobileVariant?: boolean;
 }
 
 const FILTER_TYPES = ['全部', '视频', '图集', '实况', '混合'];
@@ -72,8 +73,10 @@ export default function Topbar({
   onCollapsedChange,
   onViewModeChange,
   onSortModeChange,
+  mobileVariant,
 }: TopbarProps) {
   const headerRef = React.useRef<HTMLElement | null>(null);
+  const isMobileVariant = Boolean(mobileVariant);
   const [qValue, setQValue] = React.useState(q);
   const qTimerRef = React.useRef<number>();
   const onQChangeRef = React.useRef(onQChange);
@@ -360,23 +363,25 @@ export default function Topbar({
           >
             标签库
           </button>
-          <button
-            id="toggleViewMode"
-            className={`btn ghost toggle ${viewMode !== 'album' ? 'active' : ''}`}
-            title={
-              viewMode === 'masonry'
-                ? '瀑布流模式：图片尽量全部展示（大数据量会更吃内存）'
-                : viewMode === 'album'
-                  ? '合集模式：按组展示（更省内存）'
-                  : '按发布者：先列发布者，再按发布者分页查看'
-            }
-            onClick={() => {
-              const next = viewMode === 'masonry' ? 'album' : viewMode === 'album' ? 'publisher' : 'masonry';
-              onViewModeChange(next);
-            }}
-          >
-            {viewMode === 'masonry' ? '瀑布流' : viewMode === 'album' ? '合集' : '发布者'}
-          </button>
+          {!isMobileVariant && (
+            <button
+              id="toggleViewMode"
+              className={`btn ghost toggle ${viewMode !== 'album' ? 'active' : ''}`}
+              title={
+                viewMode === 'masonry'
+                  ? '瀑布流模式：图片尽量全部展示（大数据量会更吃内存）'
+                  : viewMode === 'album'
+                    ? '合集模式：按组展示（更省内存）'
+                    : '按发布者：先列发布者，再按发布者分页查看'
+              }
+              onClick={() => {
+                const next = viewMode === 'masonry' ? 'album' : viewMode === 'album' ? 'publisher' : 'masonry';
+                onViewModeChange(next);
+              }}
+            >
+              {viewMode === 'masonry' ? '瀑布流' : viewMode === 'album' ? '合集' : '发布者'}
+            </button>
+          )}
 
           <button
             id="toggleExpanded"
@@ -397,71 +402,75 @@ export default function Topbar({
           >
             {selectionMode ? `选择 (${selectedCount})` : '批量'}
           </button>
-          <button
-            id="fullScan"
-            className="btn ghost"
-            disabled={fullScanLoading}
-            title="全量扫描（强制更新索引）：POST /api/reindex?force=1"
-            onClick={() => {
-              Modal.confirm({
-                title: '确认执行全量扫描？',
-                content: '这会强制扫描所有资源目录并更新索引（可能耗时较长）。',
-                okText: fullScanLoading ? '扫描中…' : '开始扫描',
-                cancelText: '取消',
-                centered: true,
-                okButtonProps: { disabled: fullScanLoading },
-                onOk: async () => {
-                  try {
-                    const r = await onFullScan();
-                    const scanned = r?.scannedDirs ?? '-';
-                    const added = r?.added ?? '-';
-                    const updated = r?.updated ?? '-';
-                    const deleted = r?.deleted ?? '-';
+          {!isMobileVariant && (
+            <button
+              id="fullScan"
+              className="btn ghost"
+              disabled={fullScanLoading}
+              title="全量扫描（强制更新索引）：POST /api/reindex?force=1"
+              onClick={() => {
+                Modal.confirm({
+                  title: '确认执行全量扫描？',
+                  content: '这会强制扫描所有资源目录并更新索引（可能耗时较长）。',
+                  okText: fullScanLoading ? '扫描中…' : '开始扫描',
+                  cancelText: '取消',
+                  centered: true,
+                  okButtonProps: { disabled: fullScanLoading },
+                  onOk: async () => {
+                    try {
+                      const r = await onFullScan();
+                      const scanned = r?.scannedDirs ?? '-';
+                      const added = r?.added ?? '-';
+                      const updated = r?.updated ?? '-';
+                      const deleted = r?.deleted ?? '-';
 
-                    // 如果有新增内容，特别提示
-                    if (added > 0) {
-                      message.success({
-                        content: `✨ 扫描完成：发现 ${added} 个新增文件！`,
-                        description: `目录: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
-                        duration: 6,
+                      // 如果有新增内容，特别提示
+                      if (added > 0) {
+                        message.success({
+                          content: `✨ 扫描完成：发现 ${added} 个新增文件！`,
+                          description: `目录: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
+                          duration: 6,
+                        });
+                      } else if (updated > 0) {
+                        message.success({
+                          content: `✅ 扫描完成：更新了 ${updated} 个文件`,
+                          description: `目录: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
+                          duration: 5,
+                        });
+                      } else if (deleted > 0) {
+                        message.warning({
+                          content: `🗑️ 扫描完成：删除了 ${deleted} 个文件`,
+                          description: `目录: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
+                          duration: 5,
+                        });
+                      } else {
+                        message.info({
+                          content: '✓ 扫描完成：没有变化',
+                          description: `已扫描 ${scanned} 个目录，所有文件都是最新的`,
+                          duration: 4,
+                        });
+                      }
+                    } catch (e) {
+                      const errorMsg = String(e instanceof Error ? e.message : e);
+                      message.error({
+                        content: '❌ 扫描失败',
+                        description: errorMsg || '未知错误，请检查网络连接或服务器状态',
+                        duration: 8,
                       });
-                    } else if (updated > 0) {
-                      message.success({
-                        content: `✅ 扫描完成：更新了 ${updated} 个文件`,
-                        description: `目录: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
-                        duration: 5,
-                      });
-                    } else if (deleted > 0) {
-                      message.warning({
-                        content: `🗑️ 扫描完成：删除了 ${deleted} 个文件`,
-                        description: `目录: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
-                        duration: 5,
-                      });
-                    } else {
-                      message.info({
-                        content: '✓ 扫描完成：没有变化',
-                        description: `已扫描 ${scanned} 个目录，所有文件都是最新的`,
-                        duration: 4,
-                      });
+                      console.error('Scan error:', e);
                     }
-                  } catch (e) {
-                    const errorMsg = String(e instanceof Error ? e.message : e);
-                    message.error({
-                      content: '❌ 扫描失败',
-                      description: errorMsg || '未知错误，请检查网络连接或服务器状态',
-                      duration: 8,
-                    });
-                    console.error('Scan error:', e);
-                  }
-                },
-              });
-            }}
-          >
-            扫描
-          </button>
-          <button id="feed" className="btn immersivePrimary" title="进入沉浸模式（横滑切换内容，竖滑切换合集）" onClick={onFeedClick}>
-            🎬 沉浸
-          </button>
+                  },
+                });
+              }}
+            >
+              扫描
+            </button>
+          )}
+          {!isMobileVariant && (
+            <button id="feed" className="btn immersivePrimary" title="进入沉浸模式（横滑切换内容，竖滑切换合集）" onClick={onFeedClick}>
+              🎬 沉浸
+            </button>
+          )}
           <button
             id="toggleTopbarCollapsed"
             className="btn ghost toggle mobileOnly"

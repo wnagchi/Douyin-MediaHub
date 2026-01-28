@@ -2391,3 +2391,144 @@ body.immersiveRoute{
 .ant-image{
   display: block;
 }
+
+/* Mobile dock */
+.mobileDock{
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  z-index: 120;
+  transition: transform .18s ease, opacity .18s ease;
+}
+.mobileDockHidden{
+  transform: translateY(16px);
+  opacity: 0;
+  pointer-events: none;
+}
+.mobileDockInner{
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(0,0,0,.62);
+  border: 1px solid rgba(255,255,255,.16);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 12px 30px rgba(0,0,0,.45);
+}
+.mobileDockSegmented{
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.mobileDockSegment{
+  border: 0;
+  background: transparent;
+  color: rgba(255,255,255,.70);
+  padding: 8px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.mobileDockSegment.active{
+  background: linear-gradient(135deg, rgba(124,92,255,.28), rgba(39,211,255,.18));
+  color: rgba(255,255,255,.95);
+  font-weight: 700;
+}
+.mobileDockActions{
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.mobileDockAction{
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.08);
+  color: rgba(255,255,255,.92);
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  min-width: 48px;
+}
+.mobileDockAction.immersive{
+  background: linear-gradient(135deg, rgba(124,92,255,.30), rgba(39,211,255,.18));
+  border-color: rgba(124,92,255,.45);
+}
+.mobileDockAction.scan{
+  font-weight: 700;
+}
+.mobileDockAction:disabled{
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+/* Scan confirm sheet */
+.scanSheetOverlay{
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  background: rgba(0,0,0,.55);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 14px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+}
+.scanSheet{
+  width: 100%;
+  max-width: 520px;
+  background: var(--bg1);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 18px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.55);
+  overflow: hidden;
+}
+.scanSheetHeader{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 8px;
+  border-bottom: 1px solid rgba(255,255,255,.10);
+}
+.scanSheetTitle{
+  font-weight: 800;
+  color: rgba(255,255,255,.95);
+}
+.scanSheetClose{
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.08);
+  color: rgba(255,255,255,.85);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.scanSheetBody{
+  padding: 12px 16px 6px;
+}
+.scanSheetDesc{
+  color: rgba(255,255,255,.86);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.scanSheetHint{
+  margin-top: 6px;
+  color: rgba(255,255,255,.55);
+  font-size: 12px;
+}
+.scanSheetActions{
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 16px 16px;
+}
+
+@media (min-width: 769px){
+  .mobileDock{
+    display: none;
+  }
+}

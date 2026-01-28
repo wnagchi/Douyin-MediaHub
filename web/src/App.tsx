@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { message } from 'antd';
 import Topbar from './components/Topbar';
 import MediaGrid from './components/MediaGrid';
 import MediaTiles from './components/MediaTiles';
 import PreviewModal from './components/PreviewModal';
 import SetupCard from './components/SetupCard';
 import PublisherView from './components/PublisherView';
+import MobileDock from './components/MobileDock';
+import ScanConfirmSheet from './components/ScanConfirmSheet';
 import {
   fetchResources,
   fetchConfig,
@@ -83,6 +86,8 @@ function App() {
   });
   const [fullScanLoading, setFullScanLoading] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+  const [scanSheetOpen, setScanSheetOpen] = useState(false);
+  const [mobileDockHidden, setMobileDockHidden] = useState(false);
   const initialExpanded = (() => {
     try {
       return localStorage.getItem('ui_expanded') === '1';
@@ -373,6 +378,34 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  useEffect(() => {
+    if (!isMobile || typeof window === 'undefined') {
+      setMobileDockHidden(false);
+      return;
+    }
+    let lastY = window.scrollY || 0;
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(() => {
+        const y = window.scrollY || 0;
+        const delta = y - lastY;
+        if (y <= 12) {
+          setMobileDockHidden(false);
+        } else if (delta > 6) {
+          setMobileDockHidden(true);
+        } else if (delta < -6) {
+          setMobileDockHidden(false);
+        }
+        lastY = y;
+        ticking = false;
+      });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [isMobile]);
+
   const reloadTags = useCallback(async () => {
     const dirId = state.activeDirId && state.activeDirId !== 'all' ? state.activeDirId : '';
     setState((prev) => ({ ...prev, tagStatsLoading: true, tagStatsError: null }));
@@ -415,6 +448,34 @@ function App() {
       setScanProgress(null);
     }
   }, [fullScanLoading, loadAuthorsMeta, loadResources, reloadTags, state.viewMode]);
+
+  const notifyScanLocked = useCallback(
+    (msg: string) => {
+      if (!fullScanLoading) return false;
+      message.info(msg);
+      return true;
+    },
+    [fullScanLoading]
+  );
+
+  const handleScanClick = useCallback(() => {
+    if (notifyScanLocked('扫描进行中，暂不可重复发起')) return;
+    setScanSheetOpen(true);
+  }, [notifyScanLocked]);
+
+  const handleScanConfirm = useCallback(async () => {
+    setScanSheetOpen(false);
+    try {
+      await handleFullScan();
+    } catch (e) {
+      const errorMsg = String(e instanceof Error ? e.message : e);
+      message.error({
+        content: '扫描失败',
+        description: errorMsg || '未知错误，请检查服务端日志',
+        duration: 6,
+      });
+    }
+  }, [handleFullScan]);
 
   // 标签统计：默认取当前目录（或全部目录）的 Top tags
   useEffect(() => {
@@ -527,6 +588,7 @@ function App() {
 
   const handleOpenImmersive = useCallback(
     (groupIdx: number, itemIdx: number) => {
+      if (notifyScanLocked('扫描进行中，暂不可进入沉浸模式')) return;
       if (state.selectionMode) return;
       const group = state.groups[groupIdx];
       if (!group) return;
@@ -552,6 +614,7 @@ function App() {
     },
     [
       navigate,
+      notifyScanLocked,
       state.activeDirId,
       state.activeTag,
       state.activeType,
@@ -592,6 +655,49 @@ function App() {
       return prev;
     });
   };
+
+  const handleFeedClick = useCallback(() => {
+    if (notifyScanLocked('扫描进行中，暂不可进入沉浸模式')) return;
+    if (!state.groups.length) return;
+    const g0 = state.groups[0];
+    const idx = getPreferredItemIndex(g0);
+    handleOpenImmersive(0, idx >= 0 ? idx : 0);
+  }, [handleOpenImmersive, notifyScanLocked, state.groups]);
+
+  const handleViewModeChange = useCallback(
+    (mode: 'masonry' | 'album' | 'publisher') => {
+      if (notifyScanLocked('扫描进行中，暂不可切换视图')) return;
+      try {
+        localStorage.setItem('ui_view_mode', mode);
+      } catch {}
+      if (mode === 'publisher') {
+        // 进入发布者模式：清空已加载 groups，避免大数据常驻导致卡顿/崩溃
+        setState((prev) => ({
+          ...prev,
+          viewMode: mode,
+          groups: [],
+          renderLimit: GROUP_BATCH,
+          modal: { ...prev.modal, open: false },
+          feedMode: false,
+          pagination: {
+            page: 0,
+            pageSize: PAGE_SIZE,
+            total: 0,
+            totalPages: 0,
+            hasMore: false,
+            totalItems: 0,
+          },
+        }));
+        loadAuthorsMeta();
+      } else {
+        const leavingPublisher = state.viewMode === 'publisher';
+        setState((prev) => ({ ...prev, viewMode: mode }));
+        // 仅从 publisher 切回时，重新加载主列表（publisher 模式会清空 groups）
+        if (leavingPublisher) loadResources({ reset: true, overrideFilters: {} });
+      }
+    },
+    [loadAuthorsMeta, loadResources, notifyScanLocked, state.viewMode]
+  );
 
   // 批量删除
   const handleBatchDelete = useCallback(async () => {
@@ -725,6 +831,7 @@ function App() {
         collapsed={state.topbarCollapsed}
         viewMode={state.viewMode}
         sortMode={state.sortMode}
+        mobileVariant={isMobile}
         onQChange={(q) => refreshWithOverrides({ q })}
         onTypeChange={(type) => refreshWithOverrides({ activeType: type })}
         onDirChange={(dirId) => refreshWithOverrides({ activeDirId: dirId })}
@@ -741,12 +848,7 @@ function App() {
             loadResources({ reset: true });
           }
         }}
-        onFeedClick={() => {
-          if (!state.groups.length) return;
-          const g0 = state.groups[0];
-          const idx = getPreferredItemIndex(g0);
-          handleOpenImmersive(0, idx >= 0 ? idx : 0);
-        }}
+        onFeedClick={handleFeedClick}
         onRefresh={() => {
           if (state.viewMode === 'publisher') return loadAuthorsMeta();
           return loadResources({ reset: true });
@@ -768,36 +870,7 @@ function App() {
           } catch {}
           setState((prev) => ({ ...prev, topbarCollapsed: collapsed }));
         }}
-        onViewModeChange={(mode: 'masonry' | 'album' | 'publisher') => {
-          try {
-            localStorage.setItem('ui_view_mode', mode);
-          } catch {}
-          if (mode === 'publisher') {
-            // 进入发布者模式：清空已加载 groups，避免大数据常驻导致卡顿/崩溃
-            setState((prev) => ({
-              ...prev,
-              viewMode: mode,
-              groups: [],
-              renderLimit: GROUP_BATCH,
-              modal: { ...prev.modal, open: false },
-              feedMode: false,
-              pagination: {
-                page: 0,
-                pageSize: PAGE_SIZE,
-                total: 0,
-                totalPages: 0,
-                hasMore: false,
-                totalItems: 0,
-              },
-            }));
-            loadAuthorsMeta();
-          } else {
-            const leavingPublisher = state.viewMode === 'publisher';
-            setState((prev) => ({ ...prev, viewMode: mode }));
-            // 仅从 publisher 切回时，重新加载主列表（publisher 模式会清空 groups）
-            if (leavingPublisher) loadResources({ reset: true, overrideFilters: {} });
-          }
-        }}
+        onViewModeChange={handleViewModeChange}
         onSortModeChange={(mode) => {
           try {
             localStorage.setItem('ui_sort_mode', mode);
@@ -891,6 +964,25 @@ function App() {
           onReload={() => loadResources({ reset: true })}
         />
       )}
+
+      {isMobile && !state.selectionMode && (
+        <MobileDock
+          viewMode={state.viewMode}
+          onViewModeChange={handleViewModeChange}
+          onImmersive={handleFeedClick}
+          onScanClick={handleScanClick}
+          scanDisabled={fullScanLoading}
+          immersiveDisabled={fullScanLoading}
+          hidden={mobileDockHidden || scanSheetOpen}
+        />
+      )}
+
+      <ScanConfirmSheet
+        open={scanSheetOpen}
+        onCancel={() => setScanSheetOpen(false)}
+        onConfirm={handleScanConfirm}
+        loading={fullScanLoading}
+      />
 
       {/* 扫描进度弹窗 - 手机端优化 */}
       {fullScanLoading && scanProgress && (
