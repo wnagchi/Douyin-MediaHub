@@ -459,8 +459,8 @@ export default function Topbar({
           >
             扫描
           </button>
-          <button id="feed" className="btn ghost" title="沉浸式上滑浏览" onClick={onFeedClick}>
-            沉浸
+          <button id="feed" className="btn immersivePrimary" title="进入沉浸模式（横滑切换内容，竖滑切换合集）" onClick={onFeedClick}>
+            🎬 沉浸
           </button>
           <button
             id="toggleTopbarCollapsed"

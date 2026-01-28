@@ -74,6 +74,13 @@ interface AppState {
 
 function App() {
   const navigate = useNavigate();
+  const [isMobile, setIsMobile] = useState(() => {
+    try {
+      return typeof window !== 'undefined' ? window.innerWidth <= 768 : false;
+    } catch {
+      return false;
+    }
+  });
   const [fullScanLoading, setFullScanLoading] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const initialExpanded = (() => {
@@ -358,6 +365,14 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize, { passive: true });
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const reloadTags = useCallback(async () => {
     const dirId = state.activeDirId && state.activeDirId !== 'all' ? state.activeDirId : '';
     setState((prev) => ({ ...prev, tagStatsLoading: true, tagStatsError: null }));
@@ -488,6 +503,11 @@ function App() {
       if (item?.dirId && item.filename) {
         toggleItemSelection(item.dirId, item.filename);
       }
+      return;
+    }
+
+    if (isMobile) {
+      handleOpenImmersive(groupIdx, itemIdx);
       return;
     }
 

@@ -4,6 +4,19 @@ import { MediaGroup, deleteMediaItems } from '../api';
 import { escHtml, clamp } from '../utils';
 import { inspectMedia } from '../api';
 import BaseVideo from './BaseVideo';
+import { Swiper, SwiperSlide } from 'swiper/react';
+import { Virtual, Keyboard, Mousewheel } from 'swiper/modules';
+import type { Swiper as SwiperType } from 'swiper';
+import 'swiper/css';
+import 'swiper/css/virtual';
+
+type FlatItem = {
+  id: string;
+  groupIdx: number;
+  itemIdx: number;
+  item: import('../api').MediaItem;
+  group: MediaGroup;
+};
 
 interface PreviewModalProps {
   groups: MediaGroup[];
@@ -14,6 +27,7 @@ interface PreviewModalProps {
   onStep: (delta: number) => void;
   onSetItemIdx: (nextIdx: number) => void;
   onGroupStep: (delta: number) => void;
+  onSetGroupIdx?: (nextIdx: number) => void; // 用于 Swiper 直接设置 group index
   onNeedMore?: () => void; // 仅沉浸路由页：触底时提前加载下一页，避免卡在尾部
   onFeedModeChange?: (feedMode: boolean) => void;
   onReload?: () => void;
@@ -21,6 +35,8 @@ interface PreviewModalProps {
     index: number;
     total: number;
   };
+  flatItems?: FlatItem[]; // 纯竖向模式：扁平化的 item 列表
+  feedOverlay?: React.ReactNode; // Feed 浮层 UI
 }
 
 export default function PreviewModal({
@@ -32,15 +48,19 @@ export default function PreviewModal({
   onStep,
   onSetItemIdx,
   onGroupStep,
+  onSetGroupIdx,
   onNeedMore,
   onFeedModeChange,
   onReload,
   feedListMeta,
+  flatItems,
+  feedOverlay,
 }: PreviewModalProps) {
   const [warnVisible, setWarnVisible] = useState(false);
   const [warnExtra, setWarnExtra] = useState('');
   const [showInspectInfo, setShowInspectInfo] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [mediaOrientation, setMediaOrientation] = useState<'portrait' | 'landscape' | 'square' | 'unknown'>('unknown');
 
   // 智能静音策略：
   // 1. 默认静音（避免尴尬）
@@ -87,20 +107,10 @@ export default function PreviewModal({
   const bodyScrollYRef = useRef<number>(0);
   const thumbStripRef = useRef<HTMLDivElement>(null);
   const suppressNextClickRef = useRef(false);
-  const groupSwipeRef = useRef<{
-    active: boolean;
-    pointerId: number | null;
-    startX: number;
-    startY: number;
-    startTime: number;
-  }>({
-    active: false,
-    pointerId: null,
-    startX: 0,
-    startY: 0,
-    startTime: 0,
-  });
-  const wheelLockRef = useRef(0);
+  // Swiper refs for immersive mode
+  const groupSwiperRef = useRef<SwiperType | null>(null);
+  const itemSwiperRefs = useRef<Map<number, SwiperType | null>>(new Map());
+  const groupsLengthRef = useRef(groups.length);
   const swipeRef = useRef<{
     active: boolean;
     pointerId: number | null;
@@ -119,6 +129,14 @@ export default function PreviewModal({
 
   const bindVideoEl = useCallback((el: HTMLVideoElement | null) => {
     setVideoEl(el);
+  }, []);
+
+  const detectOrientation = useCallback((w: number, h: number) => {
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return 'unknown' as const;
+    const ratio = w / h;
+    if (ratio >= 1.1) return 'landscape' as const;
+    if (ratio <= 0.9) return 'portrait' as const;
+    return 'square' as const;
   }, []);
 
   // 保存静音偏好到 sessionStorage，并记录时间戳
@@ -163,9 +181,6 @@ export default function PreviewModal({
   );
   const hint = `${clampedIdx + 1}/${items.length}  |  ${item.filename}`;
   const canThumbStrip = !feedMode && items.length > 1;
-  const feedPositionText = feedListMeta
-    ? `${feedListMeta.index + 1}/${feedListMeta.total}`
-    : `${clampedIdx + 1}/${items.length}`;
 
   // 仅图片参与 antd 的预览组：预览层可左右切换其它图片，并反向联动到主视图
   const imageEntries = items
@@ -285,6 +300,8 @@ export default function PreviewModal({
       if (v.videoWidth === 0 && Number.isFinite(v.duration) && v.duration > 0) {
         showWarn('检测到 videoWidth=0（可能是音频-only 或视频轨无法解码）');
       }
+      const nextOrientation = detectOrientation(v.videoWidth, v.videoHeight);
+      setMediaOrientation(nextOrientation);
     };
 
     const handlePlay = () => setIsPlaying(true);
@@ -324,7 +341,7 @@ export default function PreviewModal({
       v.removeEventListener('pause', handlePause);
       v.removeEventListener('volumechange', handleVolumeChange);
     };
-  }, [item, feedMode, clampedIdx, groupIdx, showInspectInfo, videoEl]);
+  }, [item, feedMode, clampedIdx, groupIdx, showInspectInfo, videoEl, detectOrientation]);
 
   const canSwipeDetails = !feedMode && items.length > 1 && !imagePreviewOpen;
 
@@ -396,6 +413,19 @@ export default function PreviewModal({
   const handleDetailsPointerCancel = (e: React.PointerEvent) => finishSwipe(e);
 
   useEffect(() => {
+    // 沉浸模式下，Swiper 的 Keyboard 模块会处理键盘事件，这里只处理 Esc
+    if (feedMode) {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          onClose();
+        }
+        // 其他按键（ArrowLeft/Right/Up/Down）由 Swiper Keyboard 模块处理
+      };
+      document.addEventListener('keydown', handleKeyDown);
+      return () => document.removeEventListener('keydown', handleKeyDown);
+    }
+
+    // 非沉浸模式：处理所有键盘事件
     const handleKeyDown = (e: KeyboardEvent) => {
       // antd Image 预览打开时，优先让预览层处理按键（尤其是 Esc）
       if (imagePreviewOpen) return;
@@ -410,7 +440,7 @@ export default function PreviewModal({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [imagePreviewOpen, onClose, onStep]);
+  }, [feedMode, imagePreviewOpen, onClose, onStep]);
 
 
   // 缩略图条自动跟随：保证当前项优先处于可见范围（尽量居中）
@@ -431,54 +461,92 @@ export default function PreviewModal({
     setWarnVisible(false);
     setWarnExtra('');
     setShowInspectInfo(false);
+    setMediaOrientation('unknown');
   }, [groupIdx, clampedIdx]);
 
-  const handleFeedPointerDown = (e: React.PointerEvent) => {
+  // Sync Swiper to state (for immersive mode)
+  useEffect(() => {
     if (!feedMode) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const btn = (e as any).button;
-    if (typeof btn === 'number' && btn !== 0) return;
-    groupSwipeRef.current = {
-      active: true,
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      startTime: Date.now(),
-    };
-    try {
-      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    } catch {
-      // ignore
+    const groupSwiper = groupSwiperRef.current;
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'debug-session',
+        runId: 'run1',
+        hypothesisId: 'A',
+        location: 'web/src/components/PreviewModal.tsx:syncSwiperEffect',
+        message: 'sync swiper effect (may force slideTo)',
+        data: {
+          hasSwiper: !!groupSwiper,
+          swiperActiveIndex: groupSwiper?.activeIndex,
+          groupIdx,
+          feedListIndex: feedListMeta?.index,
+          flatMode: !!(flatItems && flatItems.length),
+          flatLen: flatItems?.length ?? 0,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    const flatMode = !!(flatItems && flatItems.length);
+    const desiredIndex = flatMode ? (feedListMeta?.index ?? 0) : groupIdx;
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'debug-session',
+        runId: 'run1',
+        hypothesisId: 'A',
+        location: 'web/src/components/PreviewModal.tsx:syncSwiperEffect',
+        message: 'sync swiper effect (may force slideTo)',
+        data: {
+          hasSwiper: !!groupSwiper,
+          swiperActiveIndex: groupSwiper?.activeIndex,
+          groupIdx,
+          feedListIndex: feedListMeta?.index,
+          flatMode,
+          desiredIndex,
+          flatLen: flatItems?.length ?? 0,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    // 关键：纯竖向 flat 模式下，activeIndex 由 Swiper 驱动并通过 onSlideChange 回写到 state。
+    // 如果这里再“强制对齐”，会在 state 尚未更新到最新 flatIndex 的瞬间把 Swiper 拉回旧 index，造成“滑动卡住/回弹”。
+    if (flatMode) return;
+    if (groupSwiper && groupSwiper.activeIndex !== desiredIndex) {
+      groupSwiper.slideTo(desiredIndex, 0);
     }
-  };
+  }, [feedMode, groupIdx, feedListMeta?.index, flatItems]);
 
-  const handleFeedPointerUp = (e: React.PointerEvent) => {
+  useEffect(() => {
     if (!feedMode) return;
-    const s = groupSwipeRef.current;
-    if (!s.active || s.pointerId !== e.pointerId) return;
-    groupSwipeRef.current.active = false;
-    groupSwipeRef.current.pointerId = null;
-
-    const dx = e.clientX - s.startX;
-    const dy = e.clientY - s.startY;
-    const dt = Date.now() - s.startTime;
-    if (dt < 900 && Math.abs(dy) >= 60 && Math.abs(dy) > Math.abs(dx) * 1.2) {
-      onGroupStep(dy < 0 ? 1 : -1);
-      onNeedMore?.();
+    if (flatItems && flatItems.length) return; // 纯竖向模式无 itemSwiper
+    const itemSwiper = itemSwiperRefs.current.get(groupIdx);
+    if (itemSwiper && itemSwiper.activeIndex !== clampedIdx) {
+      itemSwiper.slideTo(clampedIdx, 0);
     }
-  };
+  }, [feedMode, groupIdx, clampedIdx]);
 
-  const handleFeedWheel = (e: React.WheelEvent) => {
+  // Keep groupsLengthRef in sync
+  useEffect(() => {
+    groupsLengthRef.current = groups.length;
+  }, [groups.length]);
+
+  // Update Swiper Virtual when groups length changes
+  useEffect(() => {
     if (!feedMode) return;
-    const target = e.target as HTMLElement;
-    if (target.closest('.itemSwiper')) return;
-    const now = Date.now();
-    if (now - wheelLockRef.current < 450) return;
-    if (Math.abs(e.deltaY) < 20) return;
-    wheelLockRef.current = now;
-    onGroupStep(e.deltaY > 0 ? 1 : -1);
-    onNeedMore?.();
-  };
+    const groupSwiper = groupSwiperRef.current;
+    if (groupSwiper && groupSwiper.virtual) {
+      groupSwiper.virtual.update(true);
+    }
+  }, [feedMode, groups.length, flatItems?.length]);
+
+  // 沉浸模式手势现在由 Swiper 处理，不再需要自定义手势处理函数
 
   const handleVideoClick = () => {
     if (!videoEl) return;
@@ -635,14 +703,32 @@ export default function PreviewModal({
             </div>
             {warnVisible && (
               <div className="warnBox">
-                该视频在浏览器里<strong>有声音但没画面</strong>时，通常是<strong>视频编码不被支持</strong>（常见：<code>H.265/HEVC</code>）。<br />
-                建议：1) 点击右下角<strong>下载</strong>后用 VLC/系统播放器打开；2) 在 Win10/Edge/Chrome 安装 HEVC 扩展；3) 转码为 H.264(AVC) 再放。
-                {warnExtra && <div style={{ marginTop: '8px' }}>{escHtml(warnExtra)}</div>}
-                <button
-                  onClick={() => setShowInspectInfo(!showInspectInfo)}
-                  style={{ marginTop: '8px', padding: '4px 8px', fontSize: '11px', cursor: 'pointer' }}
+                <button 
+                  className="warnBox-close"
+                  onClick={() => setWarnVisible(false)}
+                  aria-label="关闭提示"
                 >
-                  {showInspectInfo ? '隐藏' : '显示'}详细信息
+                  ×
+                </button>
+                <div className="warnBox-title">⚠️ 视频编码不支持</div>
+                <div className="warnBox-content">
+                  浏览器不支持该视频编码（<code>H.265/HEVC</code>）
+                  <div className="warnBox-solution">
+                    <strong>解决方案：</strong>
+                    <br />
+                    • 点击下载后用系统播放器打开
+                    <br />
+                    • 安装浏览器 HEVC 扩展
+                  </div>
+                </div>
+                {warnExtra && (
+                  <div className="warnBox-extra">{escHtml(warnExtra)}</div>
+                )}
+                <button
+                  className="warnBox-toggle"
+                  onClick={() => setShowInspectInfo(!showInspectInfo)}
+                >
+                  {showInspectInfo ? '隐藏' : '显示'}技术详情
                 </button>
               </div>
             )}
@@ -685,6 +771,11 @@ export default function PreviewModal({
             alt={media.filename}
             loading={loading}
             decoding="async"
+            onLoad={(e) => {
+              const el = e.currentTarget;
+              const nextOrientation = detectOrientation(el.naturalWidth, el.naturalHeight);
+              setMediaOrientation(nextOrientation);
+            }}
             style={{
               width: '100%',
               height: '100%',
@@ -747,23 +838,7 @@ export default function PreviewModal({
       );
     }
 
-    return (
-      <>
-        {mediaElement}
-        {feedMode && isActive && (
-          <div className="feedOverlay">
-            <div className="feedTitle pmFeedTitle">
-              {escHtml(`${targetGroup.author || ''}  ${targetGroup.theme || ''}`.trim() || targetGroup.theme || media.filename)}
-            </div>
-            <div className="feedSub">
-              {escHtml(
-                `${targetGroup.timeText || ''} | ${targetGroup.groupType || ''} | ${feedPositionText} | 上下滑切换`
-              )}
-            </div>
-          </div>
-        )}
-      </>
-    );
+    return mediaElement;
   };
 
   // 沉浸模式：只渲染当前项（上下切换通过手势触发数据切换），避免大规模 DOM/媒体开销
@@ -774,17 +849,262 @@ export default function PreviewModal({
     return renderMedia(group, clampedIdx, true);
   };
 
-  const feedBody = (
-    <div
-      className="feedOneGroup"
-      onPointerDown={handleFeedPointerDown}
-      onPointerUp={handleFeedPointerUp}
-      onPointerCancel={handleFeedPointerUp}
-      onWheel={handleFeedWheel}
-    >
-      <div className="feedSlide active">{renderMedia(group, clampedIdx, true)}</div>
-    </div>
-  );
+  // Immersive mode: Swiper-based rendering
+  const handleGroupSwiperChange = useCallback((swiper: SwiperType) => {
+    const newGroupIdx = swiper.activeIndex;
+    const currentGroupsLength = groupsLengthRef.current;
+    if (newGroupIdx !== groupIdx) {
+      if (onSetGroupIdx) {
+        onSetGroupIdx(newGroupIdx);
+      } else {
+        const delta = newGroupIdx - groupIdx;
+        onGroupStep(delta);
+      }
+      // Trigger prefetch when near end - use ref for latest value
+      if (currentGroupsLength - newGroupIdx <= 5) {
+        onNeedMore?.();
+      }
+    }
+  }, [groupIdx, onSetGroupIdx, onGroupStep, onNeedMore]);
+
+  const handleItemSwiperChange = useCallback((swiper: SwiperType) => {
+    const newItemIdx = swiper.activeIndex;
+    onSetItemIdx(newItemIdx);
+  }, [onSetItemIdx]);
+
+  // 纯竖向模式：基于 flatItems 的滑动
+  const handleFlatSwiperChange = useCallback((swiper: SwiperType) => {
+    const newFlatIdx = swiper.activeIndex;
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'debug-session',
+        runId: 'run1',
+        hypothesisId: 'A',
+        location: 'web/src/components/PreviewModal.tsx:handleFlatSwiperChange',
+        message: 'flat swiper slide change',
+        data: {
+          newFlatIdx,
+          prevFlatIdx: feedListMeta?.index ?? null,
+          flatLen: flatItems?.length ?? 0,
+          willUseOnSetGroupIdx: !!onSetGroupIdx,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    if (onSetGroupIdx) {
+      onSetGroupIdx(newFlatIdx);
+    } else {
+      const currentFlatIdx = feedListMeta?.index ?? 0;
+      const delta = newFlatIdx - currentFlatIdx;
+      onGroupStep(delta);
+    }
+    // Trigger prefetch when near end
+    if (flatItems && flatItems.length - newFlatIdx <= 5) {
+      onNeedMore?.();
+    }
+  }, [feedListMeta, flatItems, onSetGroupIdx, onGroupStep, onNeedMore]);
+
+  const feedBody = feedMode ? (
+    flatItems && flatItems.length > 0 ? (
+      // 纯竖向模式：基于 flatItems 的单层 Swiper
+      <Swiper
+        className="groupSwiper"
+        direction="vertical"
+        slidesPerView={1}
+        spaceBetween={0}
+        modules={[Virtual, Keyboard, Mousewheel]}
+        virtual={{
+          enabled: true,
+          addSlidesAfter: 1,
+          addSlidesBefore: 1,
+        }}
+        keyboard={{
+          enabled: true,
+          onlyInViewport: false,
+        }}
+        mousewheel={{
+          enabled: true,
+          forceToAxis: true,
+          sensitivity: 1,
+          releaseOnEdges: false,
+        }}
+        onTouchStart={(_swiper, e) => {
+          // #region agent log
+          const t = (e?.target as HTMLElement | null) ?? null;
+          fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: 'debug-session',
+              runId: 'run2',
+              hypothesisId: 'B',
+              location: 'web/src/components/PreviewModal.tsx:flatSwiperTouchStart',
+              message: 'flat swiper touchstart',
+              data: {
+                targetTag: t?.tagName ?? null,
+                targetClass: (t as any)?.className ?? null,
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
+        }}
+        onTouchEnd={() => {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: 'debug-session',
+              runId: 'run2',
+              hypothesisId: 'B',
+              location: 'web/src/components/PreviewModal.tsx:flatSwiperTouchEnd',
+              message: 'flat swiper touchend',
+              data: { activeIndex: groupSwiperRef.current?.activeIndex ?? null },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
+        }}
+        onReachEnd={() => {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: 'debug-session',
+              runId: 'run2',
+              hypothesisId: 'F',
+              location: 'web/src/components/PreviewModal.tsx:flatSwiperReachEnd',
+              message: 'flat swiper reach end',
+              data: { activeIndex: groupSwiperRef.current?.activeIndex ?? null, flatLen: flatItems?.length ?? 0 },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
+        }}
+        onSwiper={(swiper) => {
+          groupSwiperRef.current = swiper;
+          const currentFlatIdx = feedListMeta?.index ?? 0;
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: 'debug-session',
+              runId: 'run1',
+              hypothesisId: 'A',
+              location: 'web/src/components/PreviewModal.tsx:flatOnSwiper',
+              message: 'flat swiper init slideTo',
+              data: { currentFlatIdx, flatLen: flatItems?.length ?? 0 },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
+          swiper.slideTo(currentFlatIdx, 0);
+        }}
+        onSlideChange={handleFlatSwiperChange}
+        style={{ width: '100%', height: '100%' }}
+      >
+        {flatItems.map((flatItem, flatIdx) => {
+          const isActive = flatIdx === (feedListMeta?.index ?? 0);
+          return (
+            <SwiperSlide key={flatItem.id} virtualIndex={flatIdx}>
+              <div className={`feedSlide ${isActive ? 'active' : ''} ${mediaOrientation === 'portrait' ? 'portrait' : ''}`}>
+                {renderMedia(flatItem.group, flatItem.itemIdx, isActive)}
+              </div>
+            </SwiperSlide>
+          );
+        })}
+      </Swiper>
+    ) : (
+      // 兼容模式：保持原有的 group-based 双层 Swiper
+      <Swiper
+        className="groupSwiper"
+        direction="vertical"
+        slidesPerView={1}
+        spaceBetween={0}
+        modules={[Virtual, Keyboard, Mousewheel]}
+        virtual={{
+          enabled: true,
+          addSlidesAfter: 2,
+          addSlidesBefore: 2,
+        }}
+        keyboard={{
+          enabled: true,
+          onlyInViewport: false,
+        }}
+        mousewheel={{
+          enabled: true,
+          forceToAxis: true,
+          sensitivity: 1,
+          releaseOnEdges: false,
+        }}
+        onSwiper={(swiper) => {
+          groupSwiperRef.current = swiper;
+          swiper.slideTo(groupIdx, 0);
+        }}
+        onSlideChange={handleGroupSwiperChange}
+        style={{ width: '100%', height: '100%' }}
+      >
+        {groups.map((targetGroup, gIdx) => {
+          const items = targetGroup.items || [];
+          const isActiveGroup = gIdx === groupIdx;
+          const currentItemIdx = isActiveGroup ? clampedIdx : 0;
+
+          return (
+            <SwiperSlide key={gIdx} virtualIndex={gIdx}>
+              {isActiveGroup ? (
+                <Swiper
+                  className="itemSwiper"
+                  direction="horizontal"
+                  slidesPerView={1}
+                  spaceBetween={0}
+                  modules={[Virtual, Keyboard]}
+                  virtual={{
+                    enabled: true,
+                    addSlidesAfter: 1,
+                    addSlidesBefore: 1,
+                  }}
+                  keyboard={{
+                    enabled: true,
+                    onlyInViewport: false,
+                  }}
+                  onSwiper={(swiper) => {
+                    itemSwiperRefs.current.set(gIdx, swiper);
+                    swiper.slideTo(currentItemIdx, 0);
+                  }}
+                  onSlideChange={handleItemSwiperChange}
+                  style={{ width: '100%', height: '100%' }}
+                >
+                  {items.map((_item, iIdx) => {
+                    const isActiveItem = isActiveGroup && iIdx === clampedIdx;
+                    return (
+                      <SwiperSlide key={iIdx} virtualIndex={iIdx}>
+                        <div className={`feedSlide ${isActiveItem ? 'active' : ''} ${mediaOrientation === 'portrait' ? 'portrait' : ''}`}>
+                          {renderMedia(targetGroup, iIdx, isActiveItem)}
+                        </div>
+                      </SwiperSlide>
+                    );
+                  })}
+                </Swiper>
+              ) : (
+                <div className="feedSlide inactive">
+                  <div style={{ color: 'rgba(255,255,255,.4)', fontSize: '14px', textAlign: 'center' }}>
+                    {targetGroup.author || targetGroup.theme || `合集 ${gIdx + 1}`}
+                  </div>
+                </div>
+              )}
+            </SwiperSlide>
+          );
+        })}
+      </Swiper>
+    )
+  ) : null;
 
   return (
     <div
@@ -911,7 +1231,10 @@ export default function PreviewModal({
           ) : (
             // 单张图片或非图集：保持原行为（图片单独预览 / 视频播放）
             (feedMode ? (
-              feedBody
+              <>
+                {feedBody}
+                {feedOverlay}
+              </>
             ) : (
               <div
                 className="modalBodyInner"

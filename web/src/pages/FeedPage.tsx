@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useNavigationType, useSearchParams } from 'react-router-dom';
 import PreviewModal from '../components/PreviewModal';
+import FeedOverlay from '../components/FeedOverlay';
 import { fetchResources, type MediaGroup, type PaginationInfo } from '../api';
+import { getPreferredItemIndex } from '../utils/media';
 
 type PageState = {
   loading: boolean;
@@ -19,6 +21,7 @@ type FlatItem = {
   id: string;
   groupIdx: number;
   itemIdx: number;
+  group: MediaGroup;
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -61,7 +64,7 @@ export default function FeedPage() {
   const filtersKey = useMemo(() => JSON.stringify(filters), [filters]);
   // 注意：g/i 会在滑动时频繁变化（我们会 replace 到 URL），但这不应触发“清空并重拉”。
   // 所以 bootstrapKey 只看稳定定位：fid+fn + filters。
-  const bootstrapKey = useMemo(() => `${filtersKey}::${target.fid}::${target.fn}`, [filtersKey, target.fid, target.fn]);
+  const bootstrapKey = filtersKey; // Only depend on filters, not fid/fn which change on sliding
 
   const [state, setState] = useState<PageState>({
     loading: true,
@@ -80,6 +83,8 @@ export default function FeedPage() {
   const inFlightPagesRef = useRef<Set<number>>(new Set());
   const flatItemsRef = useRef<FlatItem[]>([]);
   const shownInitialRef = useRef(false);
+  const loadedPageRef = useRef(1); // Track the highest loaded page
+  const isSlidingRef = useRef(false); // Track if user is sliding in immersive mode
 
   // keep latest state for async flows (avoid stale closure on iOS fast swipes)
   useEffect(() => {
@@ -101,7 +106,7 @@ export default function FeedPage() {
       items.forEach((item, itemIdx) => {
         if (!item) return;
         const id = item.dirId && item.filename ? `${item.dirId}|${item.filename}` : '';
-        list.push({ id, groupIdx, itemIdx });
+        list.push({ id, groupIdx, itemIdx, item, group });
       });
     });
     return list;
@@ -110,6 +115,38 @@ export default function FeedPage() {
   useEffect(() => {
     flatItemsRef.current = flatItems;
   }, [flatItems]);
+
+  useEffect(() => {
+    // #region agent log
+    const runId = 'run1';
+    const ids = flatItems.map((x) => x.id);
+    const emptyIdCount = ids.filter((x) => !x).length;
+    const uniq = new Set(ids.filter((x) => x));
+    const nonEmptyCount = ids.length - emptyIdCount;
+    const duplicateNonEmptyCount = nonEmptyCount - uniq.size;
+    fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'debug-session',
+        runId,
+        hypothesisId: 'C',
+        location: 'web/src/pages/FeedPage.tsx:flatItemsMetrics',
+        message: 'flatItems metrics',
+        data: {
+          flatLen: flatItems.length,
+          emptyIdCount,
+          nonEmptyCount,
+          duplicateNonEmptyCount,
+          groupsLen: state.groups.length,
+          groupIdx: state.groupIdx,
+          itemIdx: state.itemIdx,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+  }, [flatItems, state.groups.length, state.groupIdx, state.itemIdx]);
 
   const getFlatIndex = useCallback((groups: MediaGroup[], groupIdx: number, itemIdx: number, list: FlatItem[]) => {
     if (!list.length) return -1;
@@ -127,6 +164,13 @@ export default function FeedPage() {
     }
     return -1;
   }, []);
+
+  // 从 flatIndex 获取对应的 groupIdx 和 itemIdx
+  const getGroupItemFromFlatIndex = useCallback((flatIndex: number) => {
+    const item = flatItems[flatIndex];
+    if (!item) return null;
+    return { groupIdx: item.groupIdx, itemIdx: item.itemIdx };
+  }, [flatItems]);
 
 
   const findTarget = useCallback(
@@ -166,7 +210,8 @@ export default function FeedPage() {
       if (filters.dirId) params.dirId = filters.dirId;
       if (filters.tag) params.tag = filters.tag;
       if (filters.sort) params.sort = filters.sort;
-      return fetchResources(params, { forceRefresh: true, skipCache: true });
+      // Use cache strategy instead of force refresh
+      return fetchResources(params, { allowStaleWhenOffline: true });
     },
     [filters.dirId, filters.q, filters.sort, filters.tag, filters.type]
   );
@@ -176,13 +221,19 @@ export default function FeedPage() {
     let cancelled = false;
     // 关键：只要 fid/fn+filters 没变，就不要清空并重拉。
     // 但在 StrictMode 首次双执行时，如果还在 loading，允许重新触发，避免被清空导致卡住。
+    // Also skip if user is sliding in immersive mode (URL changes from sliding, not navigation)
     if (lastBootstrapKeyRef.current === bootstrapKey && !stateRef.current.loading) {
+      return;
+    }
+    if (isSlidingRef.current) {
+      // User is sliding in immersive mode, don't reset state
       return;
     }
 
     lastBootstrapKeyRef.current = bootstrapKey;
     inFlightPagesRef.current.clear();
     shownInitialRef.current = false;
+    loadedPageRef.current = 1; // Reset page tracking on new bootstrap
 
     const seq = ++requestSeq.current;
 
@@ -215,6 +266,7 @@ export default function FeedPage() {
 
         const found = findTarget(all);
         if (found) {
+          loadedPageRef.current = page; // Update loaded page
           setState({
             loading: false,
             loadingMore: false,
@@ -250,6 +302,7 @@ export default function FeedPage() {
       }
 
       // 没找到也展示：按 g/i（或空态）
+      loadedPageRef.current = page; // Update loaded page
       const fallback = findTarget(all);
       if (fallback) {
         setState({
@@ -292,36 +345,59 @@ export default function FeedPage() {
   const loadMoreIfNeeded = useCallback(async () => {
     // 同步 guard：避免 loading=true 时仍继续发请求导致并发/重复追加
     const cur = stateRef.current;
-    if (cur.loading || cur.loadingMore) {
-      return;
-    }
-    if (!cur.pagination?.hasMore) {
-      return;
-    }
+    // #region agent log
+    const list0 = flatItemsRef.current;
+    const curIdx0 = getFlatIndex(cur.groups, cur.groupIdx, cur.itemIdx, list0);
+    const remaining0 = curIdx0 >= 0 ? list0.length - curIdx0 : null;
+    fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'debug-session',
+        runId: 'run2',
+        hypothesisId: 'F',
+        location: 'web/src/pages/FeedPage.tsx:loadMoreIfNeeded',
+        message: 'loadMoreIfNeeded called',
+        data: {
+          loading: cur.loading,
+          loadingMore: cur.loadingMore,
+          hasMore: !!cur.pagination?.hasMore,
+          curIdx: curIdx0,
+          listLen: list0.length,
+          remaining: remaining0,
+          loadedPage: loadedPageRef.current,
+          inFlightCount: inFlightPagesRef.current.size,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    if (cur.loading || cur.loadingMore) return;
+    if (!cur.pagination?.hasMore) return;
+    
     const list = flatItemsRef.current;
     const curIdx = getFlatIndex(cur.groups, cur.groupIdx, cur.itemIdx, list);
     if (curIdx < 0) return;
     // near the end: prefetch next page
-    if (list.length - curIdx > 18) {
-      return;
-    }
+    if (list.length - curIdx > 18) return;
 
+    // Use ref to track loaded page (avoid stale closure)
+    const nextPage = loadedPageRef.current + 1;
+    if (inFlightPagesRef.current.has(nextPage)) return;
+    
     setState((prev) => ({ ...prev, loadingMore: true }));
-
-    // run fetch with latest snapshot
-    const seq = requestSeq.current;
-    const p = stateRef.current.pagination;
-    const nextPage = (p?.page || 1) + 1;
-    if (inFlightPagesRef.current.has(nextPage)) {
-      setState((prev) => ({ ...prev, loadingMore: false }));
-      return;
-    }
     inFlightPagesRef.current.add(nextPage);
+
+    const seq = requestSeq.current;
 
     try {
       const r = await fetchPage(nextPage);
       if (requestSeq.current !== seq) return;
       if (!r.ok) throw new Error(r.error || 'API error');
+      
+      // Update loadedPageRef immediately after successful fetch
+      loadedPageRef.current = nextPage;
+      
       setState((prev) => ({
         ...prev,
         loadingMore: false,
@@ -370,29 +446,65 @@ export default function FeedPage() {
     const curStr = sp.toString();
     if (nextStr !== curStr) {
       navigate({ pathname: '/feed', search: `?${nextStr}` }, { replace: true });
+      // Reset sliding flag after navigate completes (next tick)
+      requestAnimationFrame(() => {
+        isSlidingRef.current = false;
+      });
+    } else {
+      // No URL change needed, reset flag immediately
+      isSlidingRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate, state.groupIdx, state.itemIdx, state.groups]);
 
   const onClose = () => navigate(-1);
   const flatIndex = getFlatIndex(state.groups, state.groupIdx, state.itemIdx, flatItems);
-  const feedListMeta = flatIndex >= 0 ? { index: flatIndex, total: flatItems.length } : undefined;
+  // 在“合集上下切换”模式下，feedListMeta 表示合集序号
+  const feedListMeta = state.groups.length ? { index: state.groupIdx, total: state.groups.length } : undefined;
+  const currentGroup = state.groups[state.groupIdx];
+  const currentItem = currentGroup?.items?.[state.itemIdx];
 
-  const stepByList = useCallback(
-    (delta: number) => {
-      setState((prev) => {
-        const list = flatItemsRef.current;
-        if (!list.length) return prev;
-        const curIdx = getFlatIndex(prev.groups, prev.groupIdx, prev.itemIdx, list);
-        if (curIdx < 0) return prev;
-        const nextIdx = clamp(curIdx + delta, 0, list.length - 1);
-        if (nextIdx === curIdx) return prev;
-        const next = list[nextIdx];
-        return { ...prev, groupIdx: next.groupIdx, itemIdx: next.itemIdx };
-      });
-    },
-    [getFlatIndex]
-  );
+  // 处理标签点击：刷新 Feed 并应用标签筛选
+  const handleTagClick = useCallback((tag: string) => {
+    const next = new URLSearchParams(sp);
+    next.set('tag', tag);
+    navigate({ pathname: '/feed', search: `?${next.toString()}` });
+  }, [navigate, sp]);
+
+  const stepItemInGroup = useCallback((delta: number) => {
+    setState((prev) => {
+      const group = prev.groups[prev.groupIdx];
+      const items = group?.items || [];
+      if (!items.length) return prev;
+      const nextIdx = clamp(prev.itemIdx + delta, 0, items.length - 1);
+      if (nextIdx === prev.itemIdx) return prev;
+      return { ...prev, itemIdx: nextIdx };
+    });
+  }, []);
+
+  const stepGroup = useCallback((delta: number) => {
+    isSlidingRef.current = true; // Mark as sliding to prevent bootstrap reset
+    setState((prev) => {
+      if (!prev.groups.length) return prev;
+      const nextGroupIdx = clamp(prev.groupIdx + delta, 0, prev.groups.length - 1);
+      if (nextGroupIdx === prev.groupIdx) return prev;
+      const nextGroup = prev.groups[nextGroupIdx];
+      const nextItemIdx = getPreferredItemIndex(nextGroup);
+      return { ...prev, groupIdx: nextGroupIdx, itemIdx: nextItemIdx };
+    });
+  }, []);
+
+  const setGroupIdx = useCallback((nextGroupIdx: number) => {
+    isSlidingRef.current = true; // Mark as sliding to prevent bootstrap reset
+    setState((prev) => {
+      if (!prev.groups.length) return prev;
+      const clamped = clamp(nextGroupIdx, 0, prev.groups.length - 1);
+      if (clamped === prev.groupIdx) return prev;
+      const nextGroup = prev.groups[clamped];
+      const nextItemIdx = getPreferredItemIndex(nextGroup);
+      return { ...prev, groupIdx: clamped, itemIdx: nextItemIdx };
+    });
+  }, []);
 
   if (state.loading) {
     return (
@@ -444,9 +556,10 @@ export default function FeedPage() {
         itemIdx={state.itemIdx}
         feedMode
         feedListMeta={feedListMeta}
+        // 关键：恢复“上下切换合集、左右切换合集内内容”的核心交互，不再传 flatItems
         onClose={onClose}
         onNeedMore={loadMoreIfNeeded}
-        onStep={stepByList}
+        onStep={stepItemInGroup}
         onSetItemIdx={(nextIdx) => {
           setState((prev) => {
             const g = prev.groups[prev.groupIdx];
@@ -456,13 +569,26 @@ export default function FeedPage() {
             return { ...prev, itemIdx: clamped };
           });
         }}
-        onGroupStep={stepByList}
+        onGroupStep={stepGroup}
+        onSetGroupIdx={setGroupIdx}
         // 沉浸路由页不需要“切换到预览模式”按钮
         onFeedModeChange={undefined}
         onReload={() => {
           // 简化：刷新当前页面即可触发重拉
           navigate(0);
         }}
+        feedOverlay={currentGroup && currentItem ? (
+          <FeedOverlay
+            item={currentItem}
+            group={currentGroup}
+            positionText={
+              feedListMeta
+                ? `合集 ${feedListMeta.index + 1}/${feedListMeta.total} · 内容 ${state.itemIdx + 1}/${currentGroup.items?.length ?? 0}`
+                : undefined
+            }
+            onTagClick={handleTagClick}
+          />
+        ) : undefined}
       />
     </>
   );
