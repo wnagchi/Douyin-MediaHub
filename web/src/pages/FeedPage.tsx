@@ -116,37 +116,6 @@ export default function FeedPage() {
     flatItemsRef.current = flatItems;
   }, [flatItems]);
 
-  useEffect(() => {
-    // #region agent log
-    const runId = 'run1';
-    const ids = flatItems.map((x) => x.id);
-    const emptyIdCount = ids.filter((x) => !x).length;
-    const uniq = new Set(ids.filter((x) => x));
-    const nonEmptyCount = ids.length - emptyIdCount;
-    const duplicateNonEmptyCount = nonEmptyCount - uniq.size;
-    fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: 'debug-session',
-        runId,
-        hypothesisId: 'C',
-        location: 'web/src/pages/FeedPage.tsx:flatItemsMetrics',
-        message: 'flatItems metrics',
-        data: {
-          flatLen: flatItems.length,
-          emptyIdCount,
-          nonEmptyCount,
-          duplicateNonEmptyCount,
-          groupsLen: state.groups.length,
-          groupIdx: state.groupIdx,
-          itemIdx: state.itemIdx,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-  }, [flatItems, state.groups.length, state.groupIdx, state.itemIdx]);
 
   const getFlatIndex = useCallback((groups: MediaGroup[], groupIdx: number, itemIdx: number, list: FlatItem[]) => {
     if (!list.length) return -1;
@@ -345,33 +314,6 @@ export default function FeedPage() {
   const loadMoreIfNeeded = useCallback(async () => {
     // 同步 guard：避免 loading=true 时仍继续发请求导致并发/重复追加
     const cur = stateRef.current;
-    // #region agent log
-    const list0 = flatItemsRef.current;
-    const curIdx0 = getFlatIndex(cur.groups, cur.groupIdx, cur.itemIdx, list0);
-    const remaining0 = curIdx0 >= 0 ? list0.length - curIdx0 : null;
-    fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: 'debug-session',
-        runId: 'run2',
-        hypothesisId: 'F',
-        location: 'web/src/pages/FeedPage.tsx:loadMoreIfNeeded',
-        message: 'loadMoreIfNeeded called',
-        data: {
-          loading: cur.loading,
-          loadingMore: cur.loadingMore,
-          hasMore: !!cur.pagination?.hasMore,
-          curIdx: curIdx0,
-          listLen: list0.length,
-          remaining: remaining0,
-          loadedPage: loadedPageRef.current,
-          inFlightCount: inFlightPagesRef.current.size,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     if (cur.loading || cur.loadingMore) return;
     if (!cur.pagination?.hasMore) return;
     

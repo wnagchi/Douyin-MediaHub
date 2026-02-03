@@ -5,6 +5,8 @@
  * 实现消息协议以与主线程通信，处理缓存的 CRUD 操作、失效和统计。
  */
 
+const workerScope = self as DedicatedWorkerGlobalScope;
+
 import {
   DB_NAME,
   DB_VERSION,
@@ -124,7 +126,7 @@ function sendResponse(
     data,
     error,
   };
-  self.postMessage(response);
+  workerScope.postMessage(response);
 }
 
 /**
@@ -642,7 +644,7 @@ function handleCleanup(id: string, payload?: {
 /**
  * 处理来自主线程的消息
  */
-self.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
+workerScope.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
   const { id, type, payload } = event.data;
 
   // 验证消息格式

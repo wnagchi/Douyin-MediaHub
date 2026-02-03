@@ -181,6 +181,12 @@ body.immersiveRoute{
   background: linear-gradient(180deg, rgba(7,10,18,.82), rgba(7,10,18,.55));
   border-bottom: 1px solid rgba(255,255,255,.08);
 }
+.topbar.collapsed .controls{
+  display: none;
+}
+.topbar.collapsed .brandText .subtitle{
+  display: none;
+}
 .mobileOnly{ display:none; }
 
 .brand{
@@ -204,10 +210,119 @@ body.immersiveRoute{
 
 .controls{
   display:flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap:12px;
+}
+.primaryRow{
+  display:flex;
+  align-items:center;
+  gap:10px;
   flex-wrap:wrap;
+}
+.primarySearch{
+  flex: 1 1 420px;
+  min-width: min(520px, 100%);
+}
+.primaryActions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.quickSelect select{
+  cursor:pointer;
+  border:1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.86);
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  outline: none;
+  min-width: 140px;
+}
+.quickSelect{
+  display: flex;
+}
+.countBadge{
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-family: var(--mono);
+  background: rgba(124,92,255,.22);
+  color: rgba(255,255,255,.92);
+  border: 1px solid rgba(124,92,255,.45);
+}
+.typeRow{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.panel{
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.18);
+  border-radius: 16px;
+  padding: 12px;
+  display:none;
+}
+.panel.open{
+  display:block;
+}
+.panelHeader{
+  display:flex;
   align-items:center;
   justify-content:space-between;
   gap:10px;
+}
+.panelHeaderActions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.panelTitle{
+  font-weight: 700;
+  font-size: 13px;
+  color: rgba(255,255,255,.92);
+}
+.panelCount{
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+.panelBody{
+  margin-top: 10px;
+  display:flex;
+  flex-direction: column;
+  gap:10px;
+}
+.panelGrid{
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.panelItem{
+  display:flex;
+  flex-direction: column;
+  gap:6px;
+}
+.panelLabel{
+  font-size: 12px;
+  color: var(--muted);
+}
+.panelHint{
+  font-size: 11px;
+  color: rgba(255,255,255,.65);
+  font-family: var(--mono);
+}
+.panelActionsGrid{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.dirPick.fullWidth select{
+  min-width: 100%;
+  width: 100%;
 }
 
 .dirPick select{
@@ -232,6 +347,11 @@ body.immersiveRoute{
   background: rgba(255,255,255,.06);
   border: 1px solid rgba(255,255,255,.10);
   min-width: min(520px, 100%);
+}
+.search.compactSearch{
+  min-width: 100%;
+  padding: 8px 10px;
+  border-radius: 14px;
 }
 .search input{
   border:0;
@@ -445,6 +565,39 @@ body.immersiveRoute{
 .iconBtn:hover{ transform: translateY(-1px); background: rgba(255,255,255,.08); }
 
 .metaActions{ display:flex; gap:10px; flex-wrap:wrap; }
+
+@media (max-width: 768px){
+  .primaryRow{
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .primarySearch{
+    min-width: 100%;
+    flex: 0 0 auto;
+  }
+  .primaryActions{
+    justify-content: space-between;
+  }
+  .primaryActions .btn,
+  .quickSelect{
+    flex: 1 1 auto;
+  }
+  .quickSelect select{
+    width: 100%;
+  }
+  .panel{
+    padding: 10px;
+  }
+  .panelGrid{
+    grid-template-columns: 1fr;
+  }
+  .filters{
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .filters::-webkit-scrollbar{ height: 0; }
+}
 
 .grid{
   display:grid;
@@ -2529,6 +2682,51 @@ body.immersiveRoute{
 
 @media (min-width: 769px){
   .mobileDock{
+    display: none;
+  }
+}
+
+/* 移动端瀑布流列数切换按钮 */
+.mobileColumnsToggle {
+  position: fixed;
+  bottom: 80px;
+  right: 16px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: 24px;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.mobileColumnsToggle:hover,
+.mobileColumnsToggle:focus {
+  background: rgba(0, 0, 0, 0.85);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: scale(1.05);
+  outline: none;
+}
+
+.mobileColumnsToggle:active {
+  transform: scale(0.95);
+}
+
+.mobileColumnsToggle svg {
+  flex-shrink: 0;
+}
+
+/* 桌面端隐藏切换按钮 */
+@media (min-width: 768px) {
+  .mobileColumnsToggle {
     display: none;
   }
 }

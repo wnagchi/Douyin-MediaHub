@@ -48,6 +48,27 @@ export default function MediaTiles({
     }
   });
 
+  // 移动端列数选择：2列或3列
+  const [mobileColumns, setMobileColumns] = useState<2 | 3>(() => {
+    try {
+      const saved = localStorage.getItem('masonry_mobile_columns');
+      return saved === '3' ? 3 : 2;
+    } catch {
+      return 2;
+    }
+  });
+
+  // 保存列数偏好
+  const toggleMobileColumns = () => {
+    const newColumns = mobileColumns === 2 ? 3 : 2;
+    setMobileColumns(newColumns);
+    try {
+      localStorage.setItem('masonry_mobile_columns', String(newColumns));
+    } catch {
+      // ignore
+    }
+  };
+
   // 监听容器宽度：用于计算列数
   useEffect(() => {
     const el = containerRef.current;
@@ -84,9 +105,9 @@ export default function MediaTiles({
     const isMobile = w > 0 ? w < 768 : true;
     const gap = isMobile ? 12 : 16;
     const minCol = expanded ? 220 : 180;
-    const columnCount = isMobile ? 2 : Math.max(3, Math.floor((Math.max(w, 1) + gap) / (minCol + gap)));
+    const columnCount = isMobile ? mobileColumns : Math.max(3, Math.floor((Math.max(w, 1) + gap) / (minCol + gap)));
     return { isMobile, gap, minCol, columnCount };
-  }, [containerWidth, expanded]);
+  }, [containerWidth, expanded, mobileColumns]);
 
   const itemKey = (t: TileItem) => `${t.groupIdx}-${t.itemIdx}`;
 
@@ -176,10 +197,39 @@ export default function MediaTiles({
   }
 
   return (
-    <div ref={containerRef}>
+    <div ref={containerRef} style={{ position: 'relative' }}>
+      {/* 移动端列数切换按钮 */}
+      {layout.isMobile && !selectionMode && (
+        <button
+          type="button"
+          className="mobileColumnsToggle"
+          onClick={toggleMobileColumns}
+          title={`当前 ${mobileColumns} 列，点击切换`}
+          aria-label={`切换列数（当前 ${mobileColumns} 列）`}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            {mobileColumns === 2 ? (
+              // 2列图标
+              <>
+                <rect x="3" y="3" width="8" height="18" rx="1" />
+                <rect x="13" y="3" width="8" height="18" rx="1" />
+              </>
+            ) : (
+              // 3列图标
+              <>
+                <rect x="3" y="3" width="5" height="18" rx="1" />
+                <rect x="9.5" y="3" width="5" height="18" rx="1" />
+                <rect x="16" y="3" width="5" height="18" rx="1" />
+              </>
+            )}
+          </svg>
+          <span>{mobileColumns}列</span>
+        </button>
+      )}
+      
       <Masonry
         // 参考文档：https://ant.design/components/masonry-cn
-        columns={{ xs: 2, sm: 3, md: layout.columnCount }}
+        columns={{ xs: mobileColumns, sm: mobileColumns, md: layout.columnCount }}
         gutter={{ xs: 12, md: 16 }}
         fresh
         items={items.map((it) => ({

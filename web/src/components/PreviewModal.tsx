@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, cloneElement, isValidElement } from 'react';
 import { Image } from 'antd';
 import { MediaGroup, deleteMediaItems } from '../api';
 import { escHtml, clamp } from '../utils';
@@ -468,53 +468,8 @@ export default function PreviewModal({
   useEffect(() => {
     if (!feedMode) return;
     const groupSwiper = groupSwiperRef.current;
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: 'debug-session',
-        runId: 'run1',
-        hypothesisId: 'A',
-        location: 'web/src/components/PreviewModal.tsx:syncSwiperEffect',
-        message: 'sync swiper effect (may force slideTo)',
-        data: {
-          hasSwiper: !!groupSwiper,
-          swiperActiveIndex: groupSwiper?.activeIndex,
-          groupIdx,
-          feedListIndex: feedListMeta?.index,
-          flatMode: !!(flatItems && flatItems.length),
-          flatLen: flatItems?.length ?? 0,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     const flatMode = !!(flatItems && flatItems.length);
     const desiredIndex = flatMode ? (feedListMeta?.index ?? 0) : groupIdx;
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: 'debug-session',
-        runId: 'run1',
-        hypothesisId: 'A',
-        location: 'web/src/components/PreviewModal.tsx:syncSwiperEffect',
-        message: 'sync swiper effect (may force slideTo)',
-        data: {
-          hasSwiper: !!groupSwiper,
-          swiperActiveIndex: groupSwiper?.activeIndex,
-          groupIdx,
-          feedListIndex: feedListMeta?.index,
-          flatMode,
-          desiredIndex,
-          flatLen: flatItems?.length ?? 0,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     // 关键：纯竖向 flat 模式下，activeIndex 由 Swiper 驱动并通过 onSlideChange 回写到 state。
     // 如果这里再“强制对齐”，会在 state 尚未更新到最新 flatIndex 的瞬间把 Swiper 拉回旧 index，造成“滑动卡住/回弹”。
     if (flatMode) return;
@@ -557,11 +512,23 @@ export default function PreviewModal({
     }
   };
 
-  const handleMuteToggle = (e: React.MouseEvent) => {
-    e.stopPropagation(); // 防止触发视频播放/暂停
+  const handleMuteToggle = (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation(); // 防止触发视频播放/暂停
+    }
     if (!videoEl) return;
     videoEl.muted = !videoEl.muted;
     setIsMuted(videoEl.muted);
+  };
+
+  const handleSpeedChange = (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+    const currentIndex = speeds.indexOf(playbackRate);
+    const nextIndex = (currentIndex + 1) % speeds.length;
+    setPlaybackRate(speeds[nextIndex]);
   };
 
   const doDelete = async (scope: 'item' | 'group') => {
@@ -647,59 +614,62 @@ export default function PreviewModal({
                   )}
                 </div>
               )}
-              {/* 静音按钮在所有视频播放时都显示 */}
-              <button
-                className="customMuteButton"
-                onClick={handleMuteToggle}
-                title={isMuted ? '取消静音' : '静音'}
-                aria-label={isMuted ? '取消静音' : '静音'}
-              >
-                {isMuted ? (
-                  <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-                    <path
-                      d="M16 8 L10 12 L6 12 L6 20 L10 20 L16 24 L16 8 Z"
-                      fill="rgba(255,255,255,.9)"
-                    />
-                    <path
-                      d="M20 16 L24 12 M24 16 L20 12"
-                      stroke="rgba(255,255,255,.9)"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                ) : (
-                  <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-                    <path
-                      d="M16 8 L10 12 L6 12 L6 20 L10 20 L16 24 L16 8 Z"
-                      fill="rgba(255,255,255,.9)"
-                    />
-                    <path
-                      d="M20 10 L26 16 L20 22"
-                      stroke="rgba(255,255,255,.9)"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                )}
-              </button>
-              {/* 播放速度控制按钮 */}
-              <button
-                className="customSpeedButton"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
-                  const currentIndex = speeds.indexOf(playbackRate);
-                  const nextIndex = (currentIndex + 1) % speeds.length;
-                  setPlaybackRate(speeds[nextIndex]);
-                }}
-                title={`播放速度: ${playbackRate}x`}
-                aria-label={`播放速度: ${playbackRate}x`}
-              >
-                <span style={{ fontSize: '14px', fontWeight: 'bold' }}>
-                  {playbackRate}x
-                </span>
-              </button>
+              {/* 静音按钮和播放速度按钮：仅在没有 feedOverlay 时显示（有 feedOverlay 时这些按钮会在工具栏中） */}
+              {!feedOverlay && (
+                <>
+                  <button
+                    className="customMuteButton"
+                    onClick={handleMuteToggle}
+                    title={isMuted ? '取消静音' : '静音'}
+                    aria-label={isMuted ? '取消静音' : '静音'}
+                  >
+                    {isMuted ? (
+                      <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                        <path
+                          d="M16 8 L10 12 L6 12 L6 20 L10 20 L16 24 L16 8 Z"
+                          fill="rgba(255,255,255,.9)"
+                        />
+                        <path
+                          d="M20 16 L24 12 M24 16 L20 12"
+                          stroke="rgba(255,255,255,.9)"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    ) : (
+                      <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                        <path
+                          d="M16 8 L10 12 L6 12 L6 20 L10 20 L16 24 L16 8 Z"
+                          fill="rgba(255,255,255,.9)"
+                        />
+                        <path
+                          d="M20 10 L26 16 L20 22"
+                          stroke="rgba(255,255,255,.9)"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                  <button
+                    className="customSpeedButton"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+                      const currentIndex = speeds.indexOf(playbackRate);
+                      const nextIndex = (currentIndex + 1) % speeds.length;
+                      setPlaybackRate(speeds[nextIndex]);
+                    }}
+                    title={`播放速度: ${playbackRate}x`}
+                    aria-label={`播放速度: ${playbackRate}x`}
+                  >
+                    <span style={{ fontSize: '14px', fontWeight: 'bold' }}>
+                      {playbackRate}x
+                    </span>
+                  </button>
+                </>
+              )}
             </div>
             {warnVisible && (
               <div className="warnBox">
@@ -875,26 +845,6 @@ export default function PreviewModal({
   // 纯竖向模式：基于 flatItems 的滑动
   const handleFlatSwiperChange = useCallback((swiper: SwiperType) => {
     const newFlatIdx = swiper.activeIndex;
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: 'debug-session',
-        runId: 'run1',
-        hypothesisId: 'A',
-        location: 'web/src/components/PreviewModal.tsx:handleFlatSwiperChange',
-        message: 'flat swiper slide change',
-        data: {
-          newFlatIdx,
-          prevFlatIdx: feedListMeta?.index ?? null,
-          flatLen: flatItems?.length ?? 0,
-          willUseOnSetGroupIdx: !!onSetGroupIdx,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     if (onSetGroupIdx) {
       onSetGroupIdx(newFlatIdx);
     } else {
@@ -907,6 +857,21 @@ export default function PreviewModal({
       onNeedMore?.();
     }
   }, [feedListMeta, flatItems, onSetGroupIdx, onGroupStep, onNeedMore]);
+
+  // 增强 feedOverlay：注入视频控制相关的 props
+  // 在 flatItems 模式下，使用当前 flatItem 的 item；否则使用 group 的 item
+  const currentMediaItem = (flatItems && feedListMeta) 
+    ? flatItems[feedListMeta.index]?.item 
+    : item;
+  
+  const enhancedFeedOverlay = feedOverlay && isValidElement(feedOverlay) ? 
+    cloneElement(feedOverlay as React.ReactElement<any>, {
+      isMuted,
+      playbackRate,
+      onMuteToggle: () => handleMuteToggle(),
+      onSpeedChange: () => handleSpeedChange(),
+      showVideoControls: currentMediaItem?.kind === 'video',
+    }) : feedOverlay;
 
   const feedBody = feedMode ? (
     flatItems && flatItems.length > 0 ? (
@@ -932,79 +897,9 @@ export default function PreviewModal({
           sensitivity: 1,
           releaseOnEdges: false,
         }}
-        onTouchStart={(_swiper, e) => {
-          // #region agent log
-          const t = (e?.target as HTMLElement | null) ?? null;
-          fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sessionId: 'debug-session',
-              runId: 'run2',
-              hypothesisId: 'B',
-              location: 'web/src/components/PreviewModal.tsx:flatSwiperTouchStart',
-              message: 'flat swiper touchstart',
-              data: {
-                targetTag: t?.tagName ?? null,
-                targetClass: (t as any)?.className ?? null,
-              },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
-        }}
-        onTouchEnd={() => {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sessionId: 'debug-session',
-              runId: 'run2',
-              hypothesisId: 'B',
-              location: 'web/src/components/PreviewModal.tsx:flatSwiperTouchEnd',
-              message: 'flat swiper touchend',
-              data: { activeIndex: groupSwiperRef.current?.activeIndex ?? null },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
-        }}
-        onReachEnd={() => {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sessionId: 'debug-session',
-              runId: 'run2',
-              hypothesisId: 'F',
-              location: 'web/src/components/PreviewModal.tsx:flatSwiperReachEnd',
-              message: 'flat swiper reach end',
-              data: { activeIndex: groupSwiperRef.current?.activeIndex ?? null, flatLen: flatItems?.length ?? 0 },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
-        }}
         onSwiper={(swiper) => {
           groupSwiperRef.current = swiper;
           const currentFlatIdx = feedListMeta?.index ?? 0;
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/0fb33d7e-80b0-4097-89dd-e057fc4b7a5a', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sessionId: 'debug-session',
-              runId: 'run1',
-              hypothesisId: 'A',
-              location: 'web/src/components/PreviewModal.tsx:flatOnSwiper',
-              message: 'flat swiper init slideTo',
-              data: { currentFlatIdx, flatLen: flatItems?.length ?? 0 },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
           swiper.slideTo(currentFlatIdx, 0);
         }}
         onSlideChange={handleFlatSwiperChange}
@@ -1233,7 +1128,7 @@ export default function PreviewModal({
             (feedMode ? (
               <>
                 {feedBody}
-                {feedOverlay}
+                {enhancedFeedOverlay}
               </>
             ) : (
               <div
