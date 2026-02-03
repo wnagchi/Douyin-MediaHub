@@ -122,8 +122,8 @@
   --gap-sm: 12px;
   --gap-md: 16px;
   --gap-lg: 18px;
-  --masonry-gap-mobile: 12px;
-  --masonry-gap-desktop: 16px;
+  --masonry-gap-mobile: 8px;
+  --masonry-gap-desktop: 12px;
 }
 
 *{ box-sizing:border-box; }

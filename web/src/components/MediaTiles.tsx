@@ -103,7 +103,7 @@ export default function MediaTiles({
   const layout = useMemo(() => {
     const w = containerWidth || 0;
     const isMobile = w > 0 ? w < 768 : true;
-    const gap = isMobile ? 12 : 16;
+    const gap = isMobile ? 8 : 12;
     const minCol = expanded ? 220 : 180;
     const columnCount = isMobile ? mobileColumns : Math.max(3, Math.floor((Math.max(w, 1) + gap) / (minCol + gap)));
     return { isMobile, gap, minCol, columnCount };
@@ -120,6 +120,8 @@ export default function MediaTiles({
       const badgeVariant = isLive ? 'live' : isVideo ? 'video' : data.item.kind === 'image' ? 'photo' : '';
       const itemKey = data.item.dirId && data.item.filename ? `${data.item.dirId}|${data.item.filename}` : '';
       const isSelected = selectionMode && selectedItems.has(itemKey);
+
+      const showBadge = !isVideo || isLive;
 
       return (
         <div
@@ -161,13 +163,15 @@ export default function MediaTiles({
           ) : (
             <div className="w-full min-h-[220px] grid place-items-center text-sm text-white/75">{escHtml(badgeLabel)}</div>
           )}
-          <div className="tileOverlay" aria-hidden="true">
-            <div className="tileOverlayTopLeft">
-              <div className={`tileTypeBadge ${badgeVariant}`} aria-label={escHtml(badgeLabel)}>
-                <span className="tileTypeBadgeIcon">{isLive ? '●' : isVideo ? '▶' : '⧉'}</span>
+          {showBadge && (
+            <div className="tileOverlay" aria-hidden="true">
+              <div className="tileOverlayTopLeft">
+                <div className={`tileTypeBadge ${badgeVariant}`} aria-label={escHtml(badgeLabel)}>
+                  <span className="tileTypeBadgeIcon">{isLive ? '●' : isVideo ? '▶' : '⧉'}</span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       );
     },
@@ -230,7 +234,7 @@ export default function MediaTiles({
       <Masonry
         // 参考文档：https://ant.design/components/masonry-cn
         columns={{ xs: mobileColumns, sm: mobileColumns, md: layout.columnCount }}
-        gutter={{ xs: 12, md: 16 }}
+        gutter={{ xs: layout.gap, md: layout.gap }}
         fresh
         items={items.map((it) => ({
           key: itemKey(it),
@@ -252,4 +256,3 @@ export default function MediaTiles({
     </div>
   );
 }
-
