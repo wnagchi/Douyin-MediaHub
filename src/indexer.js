@@ -168,7 +168,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     return db;
   }
 
-  async function updateCheck({ force = false, onProgress = null } = {}) {
+  async function updateCheck({ force = false, onProgress = null, typeStats = null } = {}) {
     if (running) {
       return { ok: false, running: true };
     }
@@ -256,6 +256,18 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
       let updated = 0;
       let deleted = 0;
       let scannedFiles = 0;
+      const stats = typeStats ? {
+        added: typeStats.createTypeStats(),
+        updated: typeStats.createTypeStats(),
+        deleted: typeStats.createTypeStats(),
+      } : null;
+      const classifyFromTypeText = (typeText, kind) => {
+        const declaredTypes = String(typeText || "")
+          .split("+")
+          .map((t) => t.trim())
+          .filter(Boolean);
+        return { declaredTypes, kind };
+      };
 
       for (const dir of dirs) {
         if (!(await dirExists(dir.path))) continue;
@@ -354,8 +366,13 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
             continue;
           }
 
-          if (!hasPrev) added++;
-          else updated++;
+          if (!hasPrev) {
+            added++;
+            if (stats && typeStats) typeStats.bumpType(stats.added, { declaredTypes: p.declaredTypes, kind: p.kind });
+          } else {
+            updated++;
+            if (stats && typeStats) typeStats.bumpType(stats.updated, { declaredTypes: p.declaredTypes, kind: p.kind });
+          }
 
           // upsert item
           upsertItem.run(
@@ -414,6 +431,15 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
 
         // delete files that disappeared in this dir (only parsed ones are tracked)
         const before = db.prepare(`SELECT changes() AS c`);
+        if (stats && typeStats) {
+          const rows = db
+            .prepare(`SELECT kind, typeText FROM media_items WHERE dirId=? AND (seenRun IS NULL OR seenRun<>?)`)
+            .all(dir.id, scanRun);
+          for (const row of rows) {
+            const info = classifyFromTypeText(row.typeText, row.kind);
+            typeStats.bumpType(stats.deleted, info);
+          }
+        }
         deleteUnseenForDir.run(dir.id, scanRun);
         const removed = before.get().c || 0;
         if (removed) deleted += removed;
@@ -446,6 +472,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
         updated,
         deleted,
         durationMs: nowMs() - start,
+        typeStats: stats,
       };
     })();
 
@@ -884,4 +911,3 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
 }
 
 module.exports = { createIndexer };
-

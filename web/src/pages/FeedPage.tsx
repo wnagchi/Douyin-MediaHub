@@ -33,7 +33,7 @@ function encodeFn(fn: string) {
   return fn;
 }
 
-export default function FeedPage() {
+export default function FeedPage({ active = true }: { active?: boolean }) {
   const navigate = useNavigate();
   const navType = useNavigationType();
   const [sp] = useSearchParams();
@@ -93,11 +93,12 @@ export default function FeedPage() {
 
   // immersive route: force solid background to avoid iOS top/bottom "white flash"
   useEffect(() => {
+    if (!active) return;
     document.body.classList.add('immersiveRoute');
     return () => {
       document.body.classList.remove('immersiveRoute');
     };
-  }, []);
+  }, [active]);
 
   const flatItems = useMemo(() => {
     const list: FlatItem[] = [];
@@ -187,6 +188,7 @@ export default function FeedPage() {
 
   // 首次加载/filters变化：拉取直到找到目标（或达到上限）
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     // 关键：只要 fid/fn+filters 没变，就不要清空并重拉。
     // 但在 StrictMode 首次双执行时，如果还在 loading，允许重新触发，避免被清空导致卡住。
@@ -309,7 +311,7 @@ export default function FeedPage() {
     return () => {
       cancelled = true;
     };
-  }, [bootstrapKey, fetchPage, findTarget]);
+  }, [active, bootstrapKey, fetchPage, findTarget]);
 
   const loadMoreIfNeeded = useCallback(async () => {
     // 同步 guard：避免 loading=true 时仍继续发请求导致并发/重复追加
@@ -360,6 +362,7 @@ export default function FeedPage() {
 
   // 列表滑到靠后时预取更多
   useEffect(() => {
+    if (!active) return;
     if (!state.groups.length) return;
     if (!state.pagination?.hasMore) return;
     const list = flatItemsRef.current;
@@ -370,10 +373,11 @@ export default function FeedPage() {
       loadMoreIfNeeded();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.groupIdx, state.itemIdx, state.groups.length, state.pagination?.hasMore]);
+  }, [active, state.groupIdx, state.itemIdx, state.groups.length, state.pagination?.hasMore]);
 
   // 同步 URL（replace），让“复制链接”永远指向当前媒体
   useEffect(() => {
+    if (!active) return;
     const g = state.groups[state.groupIdx];
     const it = g?.items?.[state.itemIdx];
     if (!it?.dirId || !it.filename) return;
@@ -397,7 +401,7 @@ export default function FeedPage() {
       isSlidingRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigate, state.groupIdx, state.itemIdx, state.groups]);
+  }, [active, navigate, state.groupIdx, state.itemIdx, state.groups]);
 
   const onClose = () => navigate(-1);
   const flatIndex = getFlatIndex(state.groups, state.groupIdx, state.itemIdx, flatItems);
@@ -447,6 +451,10 @@ export default function FeedPage() {
       return { ...prev, groupIdx: clamped, itemIdx: nextItemIdx };
     });
   }, []);
+
+  if (!active) {
+    return null;
+  }
 
   if (state.loading) {
     return (

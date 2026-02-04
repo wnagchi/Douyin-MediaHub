@@ -57,6 +57,13 @@ export default function MediaTiles({
       return 2;
     }
   });
+  const [noGapMode, setNoGapMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('masonry_no_gap') === '1';
+    } catch {
+      return false;
+    }
+  });
 
   // 保存列数偏好
   const toggleMobileColumns = () => {
@@ -64,6 +71,15 @@ export default function MediaTiles({
     setMobileColumns(newColumns);
     try {
       localStorage.setItem('masonry_mobile_columns', String(newColumns));
+    } catch {
+      // ignore
+    }
+  };
+  const toggleNoGap = () => {
+    const next = !noGapMode;
+    setNoGapMode(next);
+    try {
+      localStorage.setItem('masonry_no_gap', next ? '1' : '0');
     } catch {
       // ignore
     }
@@ -103,11 +119,11 @@ export default function MediaTiles({
   const layout = useMemo(() => {
     const w = containerWidth || 0;
     const isMobile = w > 0 ? w < 768 : true;
-    const gap = isMobile ? 8 : 12;
+    const gap = noGapMode ? 0 : (isMobile ? 8 : 12);
     const minCol = expanded ? 220 : 180;
     const columnCount = isMobile ? mobileColumns : Math.max(3, Math.floor((Math.max(w, 1) + gap) / (minCol + gap)));
     return { isMobile, gap, minCol, columnCount };
-  }, [containerWidth, expanded, mobileColumns]);
+  }, [containerWidth, expanded, mobileColumns, noGapMode]);
 
   const itemKey = (t: TileItem) => `${t.groupIdx}-${t.itemIdx}`;
 
@@ -201,34 +217,49 @@ export default function MediaTiles({
   }
 
   return (
-    <div ref={containerRef} style={{ position: 'relative' }}>
+    <div
+      ref={containerRef}
+      style={{ position: 'relative' }}
+      className={noGapMode ? 'masonryNoGap' : undefined}
+    >
       {/* 移动端列数切换按钮 */}
       {layout.isMobile && !selectionMode && (
-        <button
-          type="button"
-          className="mobileColumnsToggle"
-          onClick={toggleMobileColumns}
-          title={`当前 ${mobileColumns} 列，点击切换`}
-          aria-label={`切换列数（当前 ${mobileColumns} 列）`}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            {mobileColumns === 2 ? (
-              // 2列图标
-              <>
-                <rect x="3" y="3" width="8" height="18" rx="1" />
-                <rect x="13" y="3" width="8" height="18" rx="1" />
-              </>
-            ) : (
-              // 3列图标
-              <>
-                <rect x="3" y="3" width="5" height="18" rx="1" />
-                <rect x="9.5" y="3" width="5" height="18" rx="1" />
-                <rect x="16" y="3" width="5" height="18" rx="1" />
-              </>
-            )}
-          </svg>
-          <span>{mobileColumns}列</span>
-        </button>
+        <div className="mobileColumnsToggleGroup">
+          <button
+            type="button"
+            className="mobileColumnsToggle"
+            onClick={toggleMobileColumns}
+            title={`当前 ${mobileColumns} 列，点击切换`}
+            aria-label={`切换列数（当前 ${mobileColumns} 列）`}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {mobileColumns === 2 ? (
+                // 2列图标
+                <>
+                  <rect x="3" y="3" width="8" height="18" rx="1" />
+                  <rect x="13" y="3" width="8" height="18" rx="1" />
+                </>
+              ) : (
+                // 3列图标
+                <>
+                  <rect x="3" y="3" width="5" height="18" rx="1" />
+                  <rect x="9.5" y="3" width="5" height="18" rx="1" />
+                  <rect x="16" y="3" width="5" height="18" rx="1" />
+                </>
+              )}
+            </svg>
+            <span>{mobileColumns}列</span>
+          </button>
+          <button
+            type="button"
+            className={`mobileColumnsToggle ${noGapMode ? 'active' : ''}`}
+            onClick={toggleNoGap}
+            title={noGapMode ? '已开启无边距' : '开启无边距'}
+            aria-label="切换无边距模式"
+          >
+            无边距
+          </button>
+        </div>
       )}
       
       <Masonry

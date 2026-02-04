@@ -6,6 +6,7 @@ const { createMediaDirStore } = require("./config/mediaDirs");
 const { createHandler } = require("./handler");
 const { createIndexer } = require("./indexer");
 const { scanMedia } = require("./media");
+const { createScanService } = require("./scanService");
 
 function isPrivateIPv4(ip) {
   if (!ip) return false;
@@ -107,6 +108,7 @@ async function main({ rootDir = __dirname ? path.resolve(__dirname, "..") : proc
 
   const mediaStore = createMediaDirStore({ rootDir: root, configPath });
   const indexer = createIndexer({ rootDir: root, mediaStore });
+  const scanService = createScanService({ rootDir: root, indexer });
 
   await mediaStore.loadConfigFromDiskOrEnv();
   if (!mediaStore.getMediaDirs().length) {
@@ -151,7 +153,9 @@ async function main({ rootDir = __dirname ? path.resolve(__dirname, "..") : proc
     console.warn("[indexer] startup updateCheck failed:", String(e?.message || e));
   }
 
-  const handler = createHandler({ publicDir: distDir, mediaStore, indexer, rootDir: root });
+  await scanService.startScheduler();
+
+  const handler = createHandler({ publicDir: distDir, mediaStore, indexer, rootDir: root, scanService });
   const server = http.createServer((req, res) => {
     handler(req, res).catch((e) => {
       res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });

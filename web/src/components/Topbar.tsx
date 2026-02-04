@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Modal, message } from 'antd';
+import { useNavigate } from 'react-router-dom';
 import { MediaDir, TagStat } from '../api';
 
 interface TopbarProps {
@@ -40,7 +41,7 @@ interface TopbarProps {
 
 const FILTER_TYPES = ['全部', '视频', '图集', '实况', '混合'];
 
-export default function Topbar({
+const Topbar = memo(function Topbar({
   q,
   activeType,
   activeDirId,
@@ -77,6 +78,7 @@ export default function Topbar({
 }: TopbarProps) {
   const headerRef = React.useRef<HTMLElement | null>(null);
   const isMobileVariant = Boolean(mobileVariant);
+  const navigate = useNavigate();
   const [qValue, setQValue] = React.useState(q);
   const qTimerRef = React.useRef<number>();
   const onQChangeRef = React.useRef(onQChange);
@@ -137,6 +139,7 @@ export default function Topbar({
       setToolsPanelOpen(false);
     }
   }, [isMobileVariant]);
+
 
   const safeTagStats = React.useMemo(() => {
     return Array.isArray(tagStats) ? tagStats.filter((t) => t && t.tag) : [];
@@ -243,6 +246,15 @@ export default function Topbar({
           <div className="title">灵感收藏</div>
           <div className="subtitle">收藏你喜欢的内容，随时回看与整理</div>
         </div>
+        <button
+          id="settingsEntry"
+          className="iconBtn"
+          title="设置"
+          onClick={() => navigate('/settings')}
+          aria-label="打开设置"
+        >
+          ⚙
+        </button>
         <button
           id="toggleTopbarCollapsedMini"
           className="iconBtn mobileOnly"
@@ -560,6 +572,14 @@ export default function Topbar({
                   🎬 沉浸看
                 </button>
               )}
+              <button
+                id="openSettings"
+                className="btn ghost"
+                onClick={() => navigate('/settings')}
+                title="打开设置"
+              >
+                设置
+              </button>
             </div>
           </div>
         </div>
@@ -710,4 +730,6 @@ export default function Topbar({
       </Modal>
     </header>
   );
-}
+});
+
+export default Topbar;

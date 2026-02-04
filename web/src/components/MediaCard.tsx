@@ -1,3 +1,4 @@
+import React, { memo } from 'react';
 import { MediaGroup } from '../api';
 import { escHtml } from '../utils';
 import BaseImage from './BaseImage';
@@ -41,7 +42,7 @@ function typeTags(g: MediaGroup): string[] {
   return uniq;
 }
 
-export default function MediaCard({
+const MediaCard = memo(function MediaCard({
   group,
   groupIdx,
   expanded: _expanded = false,
@@ -296,4 +297,6 @@ export default function MediaCard({
       />
     </Card>
   );
-}
+});
+
+export default MediaCard;

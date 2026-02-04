@@ -30,7 +30,7 @@ async function readJsonBody(req, { limitBytes = 256 * 1024 } = {}) {
   return raw ? JSON.parse(raw) : {};
 }
 
-function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
+function createHandler({ publicDir, mediaStore, indexer, rootDir, scanService }) {
   const thumbGenerator = createThumbGenerator({ rootDir });
   const videoThumbGenerator = createVideoThumbGenerator({ rootDir });
   const thumbCacheManager = new ThumbCacheManager({ rootDir });
@@ -229,7 +229,8 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
               `ip=${req.socket?.remoteAddress || "-"} ua=${String(req.headers["user-agent"] || "-")}`
           );
 
-          const r = await indexer.updateCheck({
+          const r = await scanService.runScan({
+            trigger: "manual",
             force,
             onProgress: (progress) => {
               sendSSE({ type: 'progress', data: progress });
@@ -260,7 +261,7 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
           `[hook] /api/reindex invoked method=${req.method} force=${force ? "1" : "0"} ` +
             `ip=${req.socket?.remoteAddress || "-"} ua=${String(req.headers["user-agent"] || "-")}`
         );
-        const r = await indexer.updateCheck({ force });
+        const r = await scanService.runScan({ trigger: "manual", force });
         // eslint-disable-next-line no-console
         console.log(
           `[hook] /api/reindex done ok=${Boolean(r && r.ok)} ` +
@@ -351,6 +352,43 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
       }
 
       return sendJson(res, 405, { ok: false, error: "Method not allowed" });
+    }
+
+    if (pathname === "/api/scan/schedule") {
+      if (req.method === "GET") {
+        const schedule = await scanService.readSchedule();
+        return sendJson(res, 200, { ok: true, schedule });
+      }
+      if (req.method === "POST") {
+        try {
+          const body = await readJsonBody(req, { limitBytes: 1024 });
+          const enabled = Boolean(body.enabled);
+          const timeOfDay = String(body.timeOfDay || "").trim();
+          const intervalHours = Number(body.intervalHours || 24);
+          if (!/^\d{2}:\d{2}$/.test(timeOfDay)) {
+            return sendJson(res, 400, { ok: false, error: "timeOfDay 格式应为 HH:mm" });
+          }
+          if (!Number.isFinite(intervalHours) || intervalHours < 1 || intervalHours > 168) {
+            return sendJson(res, 400, { ok: false, error: "intervalHours 需在 1-168 之间" });
+          }
+          const schedule = await scanService.updateSchedule({
+            enabled,
+            timeOfDay,
+            intervalHours,
+          });
+          return sendJson(res, 200, { ok: true, schedule });
+        } catch (e) {
+          return sendJson(res, 400, { ok: false, error: String(e?.message || e) });
+        }
+      }
+      return sendJson(res, 405, { ok: false, error: "Method not allowed" });
+    }
+
+    if (req.method === "GET" && pathname === "/api/scan/logs") {
+      const limitParam = Number.parseInt(u.searchParams.get("limit") || "50", 10);
+      const limit = Number.isFinite(limitParam) ? limitParam : 50;
+      const logs = await scanService.listLogs(limit);
+      return sendJson(res, 200, { ok: true, logs });
     }
 
     if (req.method === "GET" && pathname === "/api/inspect") {
@@ -671,5 +709,4 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir }) {
 }
 
 module.exports = { createHandler };
-
 

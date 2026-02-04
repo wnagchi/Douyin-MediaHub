@@ -267,6 +267,12 @@ export interface ReindexResponse {
   updated?: number;
   deleted?: number;
   durationMs?: number;
+  typeStats?: {
+    added?: Record<string, number>;
+    updated?: Record<string, number>;
+    deleted?: Record<string, number>;
+  };
+  logId?: string;
 }
 
 export interface ScanProgress {
@@ -278,6 +284,38 @@ export interface ScanProgress {
   added: number;
   updated: number;
   deleted: number;
+}
+
+export interface ScanSchedule {
+  enabled: boolean;
+  timeOfDay: string;
+  intervalHours: number;
+  timezone?: string;
+  lastRunAt?: number | null;
+  nextRunAt?: number | null;
+}
+
+export interface ScanLogItem {
+  id: string;
+  trigger: 'manual' | 'auto' | string;
+  startedAt: number;
+  endedAt: number;
+  durationMs: number;
+  ok: boolean;
+  error?: string | null;
+  result?: {
+    scannedDirs?: number;
+    skippedDirs?: number;
+    added?: number;
+    updated?: number;
+    deleted?: number;
+    durationMs?: number | null;
+    typeStats?: {
+      added?: Record<string, number>;
+      updated?: Record<string, number>;
+      deleted?: Record<string, number>;
+    } | null;
+  };
 }
 
 export async function reindex(params: { force?: boolean } = {}): Promise<ReindexResponse> {
@@ -319,6 +357,25 @@ export function reindexWithProgress(
       reject(new Error('扫描连接中断'));
     };
   });
+}
+
+export async function fetchScanSchedule(): Promise<{ ok: boolean; schedule?: ScanSchedule; error?: string }> {
+  const r = await fetch('/api/scan/schedule', { cache: 'no-store' });
+  return asJson(r);
+}
+
+export async function saveScanSchedule(payload: ScanSchedule): Promise<{ ok: boolean; schedule?: ScanSchedule; error?: string }> {
+  const r = await fetch('/api/scan/schedule', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return asJson(r);
+}
+
+export async function fetchScanLogs(limit = 50): Promise<{ ok: boolean; logs?: ScanLogItem[]; error?: string }> {
+  const r = await fetch(`/api/scan/logs?limit=${encodeURIComponent(String(limit))}`, { cache: 'no-store' });
+  return asJson(r);
 }
 
 // 缓存管理 API

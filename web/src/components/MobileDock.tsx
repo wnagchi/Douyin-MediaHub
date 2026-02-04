@@ -1,4 +1,4 @@
-import React from 'react';
+import { memo } from 'react';
 
 type ViewMode = 'masonry' | 'album' | 'publisher';
 
@@ -12,7 +12,7 @@ interface MobileDockProps {
   hidden?: boolean;
 }
 
-export default function MobileDock({
+const MobileDock = memo(function MobileDock({
   viewMode,
   onViewModeChange,
   onImmersive,
@@ -72,4 +72,6 @@ export default function MobileDock({
       </div>
     </div>
   );
-}
+});
+
+export default MobileDock;

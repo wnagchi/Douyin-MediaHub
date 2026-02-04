@@ -926,8 +926,8 @@ export default function PreviewModal({
         modules={[Virtual, Keyboard, Mousewheel]}
         virtual={{
           enabled: true,
-          addSlidesAfter: 2,
-          addSlidesBefore: 2,
+          addSlidesAfter: 1,
+          addSlidesBefore: 1,
         }}
         keyboard={{
           enabled: true,
