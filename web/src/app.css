@@ -2050,6 +2050,45 @@ body.immersiveRoute{
   overflow: hidden;
   background: #000;
 }
+.feedImageWrap{
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+}
+.feedImageThumb,
+.feedImageFull{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  background: #000;
+}
+.feedImageFull{
+  opacity: 0;
+  transition: opacity .22s ease;
+}
+.feedImageFull.loaded{
+  opacity: 1;
+}
+.feedVideoPoster{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  background: #000;
+  opacity: 1;
+  transition: opacity .22s ease;
+  pointer-events: none;
+}
+.feedVideoPoster.hide{
+  opacity: 0;
+}
 .feedSlide.far{
   background: #000;
 }

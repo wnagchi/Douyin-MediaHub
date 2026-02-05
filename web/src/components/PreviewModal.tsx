@@ -18,6 +18,57 @@ type FlatItem = {
   group: MediaGroup;
 };
 
+const FULL_LOAD_GROUP_MAX = 40;
+
+function FeedImage({
+  fullSrc,
+  thumbSrc,
+  alt,
+  eager,
+  loadFull,
+  onLoadOrientation,
+}: {
+  fullSrc: string;
+  thumbSrc?: string;
+  alt: string;
+  eager: boolean;
+  loadFull: boolean;
+  onLoadOrientation?: (img: HTMLImageElement) => void;
+}) {
+  const [fullLoaded, setFullLoaded] = useState(false);
+
+  useEffect(() => {
+    setFullLoaded(false);
+  }, [fullSrc, loadFull]);
+
+  const fallback = thumbSrc || fullSrc;
+
+  return (
+    <div className="feedImageWrap">
+      <img
+        className="feedImageThumb"
+        src={fallback}
+        alt={alt}
+        loading={eager ? 'eager' : 'lazy'}
+        decoding="async"
+      />
+      {loadFull && (
+        <img
+          className={`feedImageFull ${fullLoaded ? 'loaded' : ''}`}
+          src={fullSrc}
+          alt={alt}
+          loading={eager ? 'eager' : 'lazy'}
+          decoding="async"
+          onLoad={(e) => {
+            setFullLoaded(true);
+            onLoadOrientation?.(e.currentTarget);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 interface PreviewModalProps {
   groups: MediaGroup[];
   groupIdx: number;
@@ -103,6 +154,7 @@ export default function PreviewModal({
   const [imagePreviewCurrent, setImagePreviewCurrent] = useState(0);
   const [deleting, setDeleting] = useState(false);
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+  const [videoReady, setVideoReady] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
   const bodyScrollYRef = useRef<number>(0);
   const thumbStripRef = useRef<HTMLDivElement>(null);
@@ -111,6 +163,9 @@ export default function PreviewModal({
   const groupSwiperRef = useRef<SwiperType | null>(null);
   const itemSwiperRefs = useRef<Map<number, SwiperType | null>>(new Map());
   const groupsLengthRef = useRef(groups.length);
+  const preloadedGroupKeysRef = useRef<Set<string>>(new Set());
+  const preloadedGroupPeekRef = useRef<Set<string>>(new Set());
+  const preloadedSrcRef = useRef<Set<string>>(new Set());
   const swipeRef = useRef<{
     active: boolean;
     pointerId: number | null;
@@ -246,6 +301,7 @@ export default function PreviewModal({
   useEffect(() => {
     if (item.kind !== 'video' || !videoEl) {
       setIsPlaying(false);
+      setVideoReady(false);
       return;
     }
     const v = videoEl;
@@ -306,15 +362,22 @@ export default function PreviewModal({
 
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
+    const handleReady = () => setVideoReady(true);
     const handleVolumeChange = () => {
       setIsMuted(v.muted);
     };
 
     v.addEventListener('error', handleError);
     v.addEventListener('loadedmetadata', handleLoadedMetadata);
+    v.addEventListener('loadeddata', handleReady);
+    v.addEventListener('canplay', handleReady);
     v.addEventListener('play', handlePlay);
     v.addEventListener('pause', handlePause);
     v.addEventListener('volumechange', handleVolumeChange);
+
+    if (v.readyState >= 2) {
+      handleReady();
+    }
 
     // 自动播放（仅在 feedMode 或非 iOS）
     const playPromise = v.play();
@@ -337,13 +400,72 @@ export default function PreviewModal({
       }
       v.removeEventListener('error', handleError);
       v.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      v.removeEventListener('loadeddata', handleReady);
+      v.removeEventListener('canplay', handleReady);
       v.removeEventListener('play', handlePlay);
       v.removeEventListener('pause', handlePause);
       v.removeEventListener('volumechange', handleVolumeChange);
     };
   }, [item, feedMode, clampedIdx, groupIdx, showInspectInfo, videoEl, detectOrientation]);
 
+  useEffect(() => {
+    setVideoReady(false);
+  }, [item.dirId, item.filename, item.kind]);
+
   const canSwipeDetails = !feedMode && items.length > 1 && !imagePreviewOpen;
+
+  // 沉浸模式：切换到某个合集时，预加载该合集内资源，减少滑动闪动
+  useEffect(() => {
+    if (!feedMode) return;
+    const preloadGroup = (g: MediaGroup, key: string, full: boolean) => {
+      const list = Array.isArray(g.items) ? g.items : [];
+      const limit = full ? list.length : Math.min(list.length, 6);
+      for (let idx = 0; idx < limit; idx++) {
+        const it = list[idx];
+        const url = it?.url || '';
+        if (!url || preloadedSrcRef.current.has(url)) continue;
+        preloadedSrcRef.current.add(url);
+
+        if (it.kind === 'image') {
+          const NativeImage = typeof window !== 'undefined' ? window.Image : null;
+          if (NativeImage) {
+            const img = new NativeImage();
+            img.decoding = 'async';
+            img.src = url;
+          }
+        } else if (it.kind === 'video') {
+          try {
+            const v = document.createElement('video');
+            v.preload = 'metadata';
+            v.muted = true;
+            v.playsInline = true;
+            v.src = url;
+            v.load();
+          } catch {
+            // ignore
+          }
+        }
+      }
+    };
+
+    const indices = [groupIdx - 1, groupIdx, groupIdx + 1];
+    for (const idx of indices) {
+      if (idx < 0 || idx >= groups.length) continue;
+      const g = groups[idx];
+      if (!g) continue;
+      const key = g.id || `${g.timeText || ''}|${g.author || ''}|${g.theme || ''}|${idx}`;
+      const isActive = idx === groupIdx;
+      if (isActive) {
+        if (preloadedGroupKeysRef.current.has(key)) continue;
+        preloadedGroupKeysRef.current.add(key);
+        preloadGroup(g, key, true);
+      } else {
+        if (preloadedGroupKeysRef.current.has(key) || preloadedGroupPeekRef.current.has(key)) continue;
+        preloadedGroupPeekRef.current.add(key);
+        preloadGroup(g, key, false);
+      }
+    }
+  }, [feedMode, groupIdx, groups]);
 
   const handleDetailsPointerDown = (e: React.PointerEvent) => {
     if (!canSwipeDetails) return;
@@ -591,17 +713,28 @@ export default function PreviewModal({
               <BaseVideo
                 key={`active-${groupIdx}-${currentIdx}`}
                 src={media.url}
+                poster={media.thumbUrl}
                 autoPlay
                 playsInline
-                preload="metadata"
+                preload={feedMode ? 'auto' : 'metadata'}
                 muted={isMuted}
                 loop={feedMode}
                 controls={!useCustomControls}
+                showSkeleton={!feedMode}
                 className={useCustomControls ? 'modalVideo customControls' : 'modalVideo'}
                 wrapperClassName="w-full h-full"
                 playerStyle={{ width: '100%', height: '100%' }}
                 onVideoEl={bindVideoEl}
               />
+              {feedMode && media.thumbUrl && (
+                <img
+                  className={`feedVideoPoster ${videoReady ? 'hide' : ''}`}
+                  src={media.thumbUrl}
+                  alt={media.filename}
+                  loading="eager"
+                  decoding="async"
+                />
+              )}
               {useCustomControls && (
                 <div className="customVideoControls" aria-hidden="true">
                   {!isPlaying && (
@@ -729,30 +862,27 @@ export default function PreviewModal({
       }
     } else if (media.kind === 'image') {
       // 沉浸模式：iOS 对大量原图解码非常敏感（会杀页/重载）。
-      // 策略：DOM 只挂当前 item 的原图，其余 item 用 thumb；同时后台预取左右各 1 张原图。
+      // 策略：DOM 只挂当前 item 的原图，其余 item 用 thumb；切换合集时预加载该合集资源减少闪动。
 
       if (feedMode) {
-        const src = isActive ? media.url : media.thumbUrl ?? media.url;
-        const loading: 'eager' | 'lazy' = isActive ? 'eager' : 'lazy';
+        const isActiveGroup = targetGroup === group;
+        const loadAll = isActiveGroup && items.length <= FULL_LOAD_GROUP_MAX;
+        const loadFull = isActive || loadAll || (isActiveGroup && Math.abs(currentIdx - clampedIdx) <= 1);
         mediaElement = (
-          <img
-            key={`feed-img-${groupIdx}-${currentIdx}`}
-            src={src}
+          <FeedImage
+            fullSrc={media.url}
+            thumbSrc={media.thumbUrl ?? media.url}
             alt={media.filename}
-            loading={loading}
-            decoding="async"
-            onLoad={(e) => {
-              const el = e.currentTarget;
-              const nextOrientation = detectOrientation(el.naturalWidth, el.naturalHeight);
-              setMediaOrientation(nextOrientation);
-            }}
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              background: '#000',
-              display: 'block',
-            }}
+            eager={isActive}
+            loadFull={loadFull}
+            onLoadOrientation={
+              isActive
+                ? (img) => {
+                    const nextOrientation = detectOrientation(img.naturalWidth, img.naturalHeight);
+                    setMediaOrientation(nextOrientation);
+                  }
+                : undefined
+            }
           />
         );
       } else if (!isActive) {
@@ -949,7 +1079,9 @@ export default function PreviewModal({
         {groups.map((targetGroup, gIdx) => {
           const items = targetGroup.items || [];
           const isActiveGroup = gIdx === groupIdx;
+          const nearGroup = Math.abs(gIdx - groupIdx) <= 1;
           const currentItemIdx = isActiveGroup ? clampedIdx : 0;
+          const previewIdx = Math.max(0, Math.min(items.length - 1, 0));
 
           return (
             <SwiperSlide key={gIdx} virtualIndex={gIdx}>
@@ -987,6 +1119,10 @@ export default function PreviewModal({
                     );
                   })}
                 </Swiper>
+              ) : nearGroup && items.length ? (
+                <div className="feedSlide peek">
+                  {renderMedia(targetGroup, previewIdx, false)}
+                </div>
               ) : (
                 <div className="feedSlide inactive">
                   <div style={{ color: 'rgba(255,255,255,.4)', fontSize: '14px', textAlign: 'center' }}>
