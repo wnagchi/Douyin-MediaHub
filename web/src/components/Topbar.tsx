@@ -238,123 +238,127 @@ const Topbar = memo(function Topbar({
 
   return (
     <header ref={headerRef as any} className={`topbar ${collapsed ? 'collapsed' : ''}`}>
-      <div className="brand">
-        <div className="logo" aria-hidden="true">
-          M
+      <div className="topbarMain">
+        <div className="brand">
+          <div className="logo" aria-hidden="true">
+            M
+          </div>
+          <div className="brandText">
+            <div className="title">灵感收藏</div>
+            <div className="subtitle">收藏你喜欢的内容，随时回看与整理</div>
+          </div>
+          <button
+            id="settingsEntry"
+            className="iconBtn"
+            title="设置"
+            onClick={() => navigate('/settings')}
+            aria-label="打开设置"
+          >
+            ⚙
+          </button>
+          <button
+            id="toggleTopbarCollapsedMini"
+            className="iconBtn mobileOnly"
+            title={collapsed ? '展开工具栏' : '收起工具栏'}
+            onClick={() => onCollapsedChange(!collapsed)}
+          >
+            {collapsed ? '▾' : '▴'}
+          </button>
         </div>
-        <div className="brandText">
-          <div className="title">灵感收藏</div>
-          <div className="subtitle">收藏你喜欢的内容，随时回看与整理</div>
+
+        <div className="topbarMainControls">
+          <div className="primaryRow">
+            <div className="search primarySearch" style={{ position: 'relative' }}>
+              <input
+                ref={searchInputRef}
+                id="q"
+                type="search"
+                placeholder={viewMode === 'publisher' ? '搜索作者（仅匹配作者名）…' : '搜索：作者 / 主题 / 关键词…'}
+                autoComplete="off"
+                value={qValue}
+                onChange={(e) => setQValue(e.target.value)}
+                onFocus={() => setShowSearchSuggestions(true)}
+              />
+              <button
+                id="clearQ"
+                className="iconBtn"
+                title="清空"
+                onClick={() => {
+                  setQValue('');
+                  onQChange('');
+                }}
+              >
+                ×
+              </button>
+
+              {/* 搜索建议下拉框 - 手机端优化 */}
+              {showSearchSuggestions && searchSuggestions.length > 0 && (
+                <div className="searchSuggestions">
+                  {searchSuggestions.map((suggestion, idx) => (
+                    <button
+                      key={`${suggestion.type}-${idx}`}
+                      className="searchSuggestionItem"
+                      onClick={() => {
+                        setQValue(suggestion.value);
+                        onQChange(suggestion.value);
+                        setShowSearchSuggestions(false);
+                      }}
+                    >
+                      <span className="searchSuggestionIcon">
+                        {suggestion.type === 'history' && '🕐'}
+                        {suggestion.type === 'author' && '👤'}
+                        {suggestion.type === 'tag' && '#'}
+                      </span>
+                      <span className="searchSuggestionLabel">{suggestion.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="primaryActions">
+              <button
+                id="toggleFilterPanel"
+                className={`btn ghost compact ${filterPanelOpen ? 'active' : ''}`}
+                title="筛选条件"
+                onClick={() => setFilterPanelOpen((prev) => !prev)}
+              >
+                筛选
+                {activeFilterCount > 0 && <span className="countBadge">{activeFilterCount}</span>}
+              </button>
+              <div className="quickSelect">
+                <select
+                  id="sortSelect"
+                  title="排序方式"
+                  value={sortMode}
+                  onChange={(e) => onSortModeChange(e.target.value as 'publish' | 'ingest')}
+                >
+                  <option value="publish">最新发布</option>
+                  <option value="ingest">最近加入</option>
+                </select>
+              </div>
+              <button
+                id="selection"
+                className={`btn ghost compact ${selectionMode ? 'active' : ''}`}
+                title={selectionMode ? `已选择 ${selectedCount} 项` : '多选操作'}
+                onClick={onToggleSelectionMode}
+              >
+                {selectionMode ? `多选 (${selectedCount})` : '多选'}
+              </button>
+              <button
+                id="toggleToolsPanel"
+                className={`btn ghost compact ${toolsPanelOpen ? 'active' : ''}`}
+                title="更多工具"
+                onClick={() => setToolsPanelOpen((prev) => !prev)}
+              >
+                更多
+              </button>
+            </div>
+          </div>
         </div>
-        <button
-          id="settingsEntry"
-          className="iconBtn"
-          title="设置"
-          onClick={() => navigate('/settings')}
-          aria-label="打开设置"
-        >
-          ⚙
-        </button>
-        <button
-          id="toggleTopbarCollapsedMini"
-          className="iconBtn mobileOnly"
-          title={collapsed ? '展开工具栏' : '收起工具栏'}
-          onClick={() => onCollapsedChange(!collapsed)}
-        >
-          {collapsed ? '▾' : '▴'}
-        </button>
       </div>
 
       <div className="controls">
-        <div className="primaryRow">
-          <div className="search primarySearch" style={{ position: 'relative' }}>
-            <input
-              ref={searchInputRef}
-              id="q"
-              type="search"
-              placeholder={viewMode === 'publisher' ? '搜索作者（仅匹配作者名）…' : '搜索：作者 / 主题 / 关键词…'}
-              autoComplete="off"
-              value={qValue}
-              onChange={(e) => setQValue(e.target.value)}
-              onFocus={() => setShowSearchSuggestions(true)}
-            />
-            <button
-              id="clearQ"
-              className="iconBtn"
-              title="清空"
-              onClick={() => {
-                setQValue('');
-                onQChange('');
-              }}
-            >
-              ×
-            </button>
-
-            {/* 搜索建议下拉框 - 手机端优化 */}
-            {showSearchSuggestions && searchSuggestions.length > 0 && (
-              <div className="searchSuggestions">
-                {searchSuggestions.map((suggestion, idx) => (
-                  <button
-                    key={`${suggestion.type}-${idx}`}
-                    className="searchSuggestionItem"
-                    onClick={() => {
-                      setQValue(suggestion.value);
-                      onQChange(suggestion.value);
-                      setShowSearchSuggestions(false);
-                    }}
-                  >
-                    <span className="searchSuggestionIcon">
-                      {suggestion.type === 'history' && '🕐'}
-                      {suggestion.type === 'author' && '👤'}
-                      {suggestion.type === 'tag' && '#'}
-                    </span>
-                    <span className="searchSuggestionLabel">{suggestion.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="primaryActions">
-            <button
-              id="toggleFilterPanel"
-              className={`btn ghost compact ${filterPanelOpen ? 'active' : ''}`}
-              title="筛选条件"
-              onClick={() => setFilterPanelOpen((prev) => !prev)}
-            >
-              筛选
-              {activeFilterCount > 0 && <span className="countBadge">{activeFilterCount}</span>}
-            </button>
-            <div className="quickSelect">
-              <select
-                id="sortSelect"
-                title="排序方式"
-                value={sortMode}
-                onChange={(e) => onSortModeChange(e.target.value as 'publish' | 'ingest')}
-              >
-                <option value="publish">最新发布</option>
-                <option value="ingest">最近加入</option>
-              </select>
-            </div>
-            <button
-              id="selection"
-              className={`btn ghost compact ${selectionMode ? 'active' : ''}`}
-              title={selectionMode ? `已选择 ${selectedCount} 项` : '多选操作'}
-              onClick={onToggleSelectionMode}
-            >
-              {selectionMode ? `多选 (${selectedCount})` : '多选'}
-            </button>
-            <button
-              id="toggleToolsPanel"
-              className={`btn ghost compact ${toolsPanelOpen ? 'active' : ''}`}
-              title="更多工具"
-              onClick={() => setToolsPanelOpen((prev) => !prev)}
-            >
-              更多
-            </button>
-          </div>
-        </div>
-
-        <div className="typeRow">
+        <div className="typeRow topbarTabs">
           <div className="filters" id="filters">
             {FILTER_TYPES.map((type) => (
               <button
@@ -369,217 +373,219 @@ const Topbar = memo(function Topbar({
           </div>
         </div>
 
-        <div className={`panel filterPanel ${filterPanelOpen ? 'open' : ''}`}>
-          <div className="panelHeader">
-            <div className="panelTitle">筛选条件</div>
-            <div className="panelHeaderActions">
-              {activeFilterCount > 0 && <div className="panelCount">已启用 {activeFilterCount} 项</div>}
-              <button className="iconBtn" title="收起筛选" onClick={() => setFilterPanelOpen(false)}>
-                ×
-              </button>
+        <div className="topbarPanels">
+          <div className={`panel filterPanel ${filterPanelOpen ? 'open' : ''}`}>
+            <div className="panelHeader">
+              <div className="panelTitle">筛选条件</div>
+              <div className="panelHeaderActions">
+                {activeFilterCount > 0 && <div className="panelCount">已启用 {activeFilterCount} 项</div>}
+                <button className="iconBtn" title="收起筛选" onClick={() => setFilterPanelOpen(false)}>
+                  ×
+                </button>
+              </div>
             </div>
-          </div>
-          <div className="panelBody">
-            <div className="panelGrid">
-              <div className="panelItem">
-                <label className="panelLabel" htmlFor="tag">
-                  话题标签
-                </label>
-                <div className="search compactSearch" style={{ position: 'relative' }}>
-                  <input
-                    id="tag"
-                    type="search"
-                    placeholder={activeTags.length > 0 ? `已选 ${activeTags.length} 个标签 (${tagFilterMode})` : '输入 #话题 或 标签名（可留空）'}
-                    autoComplete="off"
-                    value={tagValue}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setTagValue(v);
-                      onTagChange(v);
-                    }}
-                    disabled={activeTags.length > 0}
-                    style={
-                      activeTags.length > 0
-                        ? {
-                            backgroundColor: 'rgba(var(--accent-rgb), 0.15)',
-                            cursor: 'not-allowed',
-                            color: 'rgba(255,255,255,0.85)',
-                          }
-                        : undefined
-                    }
-                  />
-                  <button
-                    id="clearTag"
-                    className="iconBtn"
-                    title={activeTags.length > 0 ? '清空多标签筛选' : '清空标签'}
-                    onClick={() => {
-                      setTagValue('');
-                      onTagChange('');
-                      if (activeTags.length > 0) {
-                        onTagsChange([]);
+            <div className="panelBody">
+              <div className="panelGrid">
+                <div className="panelItem">
+                  <label className="panelLabel" htmlFor="tag">
+                    话题标签
+                  </label>
+                  <div className="search compactSearch" style={{ position: 'relative' }}>
+                    <input
+                      id="tag"
+                      type="search"
+                      placeholder={activeTags.length > 0 ? `已选 ${activeTags.length} 个标签 (${tagFilterMode})` : '输入 #话题 或 标签名（可留空）'}
+                      autoComplete="off"
+                      value={tagValue}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setTagValue(v);
+                        onTagChange(v);
+                      }}
+                      disabled={activeTags.length > 0}
+                      style={
+                        activeTags.length > 0
+                          ? {
+                              backgroundColor: 'rgba(var(--accent-rgb), 0.15)',
+                              cursor: 'not-allowed',
+                              color: 'rgba(255,255,255,0.85)',
+                            }
+                          : undefined
                       }
+                    />
+                    <button
+                      id="clearTag"
+                      className="iconBtn"
+                      title={activeTags.length > 0 ? '清空多标签筛选' : '清空标签'}
+                      onClick={() => {
+                        setTagValue('');
+                        onTagChange('');
+                        if (activeTags.length > 0) {
+                          onTagsChange([]);
+                        }
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  {activeTags.length > 0 && (
+                    <div className="panelHint">已选 {activeTags.length} 个标签（{tagFilterMode}）</div>
+                  )}
+                </div>
+                <div className="panelItem">
+                  <label className="panelLabel" htmlFor="dirSelect">
+                    内容来源
+                  </label>
+                  <div className="dirPick fullWidth">
+                    <select
+                      id="dirSelect"
+                      title="选择内容来源"
+                      value={activeDirId}
+                      onChange={(e) => onDirChange(e.target.value)}
+                    >
+                      <option value="all">全部来源</option>
+                      {dirs.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.label || d.path || d.id}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className={`panel toolsPanel ${toolsPanelOpen ? 'open' : ''}`}>
+            <div className="panelHeader">
+              <div className="panelTitle">工具与视图</div>
+              <div className="panelHeaderActions">
+                <button className="iconBtn" title="收起工具" onClick={() => setToolsPanelOpen(false)}>
+                  ×
+                </button>
+              </div>
+            </div>
+            <div className="panelBody">
+              <div className="panelActionsGrid">
+                <button
+                  id="openTagModal"
+                  className="btn ghost"
+                  title="打开话题标签库"
+                  onClick={() => {
+                    setTagSearch('');
+                    setTagModalOpen(true);
+                    onReloadTags?.();
+                  }}
+                >
+                  话题标签
+                </button>
+                {!isMobileVariant && (
+                  <button
+                    id="toggleViewMode"
+                    className={`btn ghost toggle ${viewMode !== 'album' ? 'active' : ''}`}
+                    title={
+                      viewMode === 'masonry'
+                        ? '瀑布流：更多内容预览'
+                        : viewMode === 'album'
+                          ? '合集：按主题归类'
+                          : '作者：按作者浏览'
+                    }
+                    onClick={() => {
+                      const next = viewMode === 'masonry' ? 'album' : viewMode === 'album' ? 'publisher' : 'masonry';
+                      onViewModeChange(next);
                     }}
                   >
-                    ×
+                    {viewMode === 'masonry' ? '瀑布流' : viewMode === 'album' ? '合集' : '作者'}
                   </button>
-                </div>
-                {activeTags.length > 0 && (
-                  <div className="panelHint">已选 {activeTags.length} 个标签（{tagFilterMode}）</div>
                 )}
-              </div>
-              <div className="panelItem">
-                <label className="panelLabel" htmlFor="dirSelect">
-                  内容来源
-                </label>
-                <div className="dirPick fullWidth">
-                  <select
-                    id="dirSelect"
-                    title="选择内容来源"
-                    value={activeDirId}
-                    onChange={(e) => onDirChange(e.target.value)}
-                  >
-                    <option value="all">全部来源</option>
-                    {dirs.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.label || d.path || d.id}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className={`panel toolsPanel ${toolsPanelOpen ? 'open' : ''}`}>
-          <div className="panelHeader">
-            <div className="panelTitle">工具与视图</div>
-            <div className="panelHeaderActions">
-              <button className="iconBtn" title="收起工具" onClick={() => setToolsPanelOpen(false)}>
-                ×
-              </button>
-            </div>
-          </div>
-          <div className="panelBody">
-            <div className="panelActionsGrid">
-              <button
-                id="openTagModal"
-                className="btn ghost"
-                title="打开话题标签库"
-                onClick={() => {
-                  setTagSearch('');
-                  setTagModalOpen(true);
-                  onReloadTags?.();
-                }}
-              >
-                话题标签
-              </button>
-              {!isMobileVariant && (
                 <button
-                  id="toggleViewMode"
-                  className={`btn ghost toggle ${viewMode !== 'album' ? 'active' : ''}`}
-                  title={
-                    viewMode === 'masonry'
-                      ? '瀑布流：更多内容预览'
-                      : viewMode === 'album'
-                        ? '合集：按主题归类'
-                        : '作者：按作者浏览'
-                  }
-                  onClick={() => {
-                    const next = viewMode === 'masonry' ? 'album' : viewMode === 'album' ? 'publisher' : 'masonry';
-                    onViewModeChange(next);
-                  }}
+                  id="toggleExpanded"
+                  className={`btn ghost toggle ${expanded ? 'active' : ''}`}
+                  title="切换卡片大小"
+                  onClick={() => onExpandedChange(!expanded)}
                 >
-                  {viewMode === 'masonry' ? '瀑布流' : viewMode === 'album' ? '合集' : '作者'}
+                  {expanded ? '紧凑' : '大图'}
                 </button>
-              )}
-              <button
-                id="toggleExpanded"
-                className={`btn ghost toggle ${expanded ? 'active' : ''}`}
-                title="切换卡片大小"
-                onClick={() => onExpandedChange(!expanded)}
-              >
-                {expanded ? '紧凑' : '大图'}
-              </button>
-              <button id="refresh" className="btn" onClick={onRefresh}>
-                刷新内容
-              </button>
-              {!isMobileVariant && (
-                <button
-                  id="fullScan"
-                  className="btn ghost"
-                  disabled={fullScanLoading}
-                  title="同步本地内容"
-                  onClick={() => {
-                    Modal.confirm({
-                      title: '同步本地内容？',
-                      content: '将重新扫描内容来源并更新索引（可能需要一点时间）。',
-                      okText: fullScanLoading ? '同步中…' : '开始同步',
-                      cancelText: '取消',
-                      centered: true,
-                      okButtonProps: { disabled: fullScanLoading },
-                      onOk: async () => {
-                        try {
-                          const r = await onFullScan();
-                          const scanned = r?.scannedDirs ?? '-';
-                          const added = r?.added ?? '-';
-                          const updated = r?.updated ?? '-';
-                          const deleted = r?.deleted ?? '-';
+                <button id="refresh" className="btn" onClick={onRefresh}>
+                  刷新内容
+                </button>
+                {!isMobileVariant && (
+                  <button
+                    id="fullScan"
+                    className="btn ghost"
+                    disabled={fullScanLoading}
+                    title="同步本地内容"
+                    onClick={() => {
+                      Modal.confirm({
+                        title: '同步本地内容？',
+                        content: '将重新扫描内容来源并更新索引（可能需要一点时间）。',
+                        okText: fullScanLoading ? '同步中…' : '开始同步',
+                        cancelText: '取消',
+                        centered: true,
+                        okButtonProps: { disabled: fullScanLoading },
+                        onOk: async () => {
+                          try {
+                            const r = await onFullScan();
+                            const scanned = r?.scannedDirs ?? '-';
+                            const added = r?.added ?? '-';
+                            const updated = r?.updated ?? '-';
+                            const deleted = r?.deleted ?? '-';
 
-                          if (added > 0) {
-                            message.success({
-                              content: `✨ 同步完成：发现 ${added} 条新内容！`,
-                              description: `来源: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
-                              duration: 6,
+                            if (added > 0) {
+                              message.success({
+                                content: `✨ 同步完成：发现 ${added} 条新内容！`,
+                                description: `来源: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
+                                duration: 6,
+                              });
+                            } else if (updated > 0) {
+                              message.success({
+                                content: `✅ 同步完成：更新了 ${updated} 条内容`,
+                                description: `来源: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
+                                duration: 5,
+                              });
+                            } else if (deleted > 0) {
+                              message.warning({
+                                content: `🗑️ 同步完成：移除了 ${deleted} 条内容`,
+                                description: `来源: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
+                                duration: 5,
+                              });
+                            } else {
+                              message.info({
+                                content: '✓ 同步完成：没有变化',
+                                description: `已同步 ${scanned} 个来源，内容已是最新`,
+                                duration: 4,
+                              });
+                            }
+                          } catch (e) {
+                            const errorMsg = String(e instanceof Error ? e.message : e);
+                            message.error({
+                              content: '❌ 同步失败',
+                              description: errorMsg || '未知错误，请稍后再试',
+                              duration: 8,
                             });
-                          } else if (updated > 0) {
-                            message.success({
-                              content: `✅ 同步完成：更新了 ${updated} 条内容`,
-                              description: `来源: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
-                              duration: 5,
-                            });
-                          } else if (deleted > 0) {
-                            message.warning({
-                              content: `🗑️ 同步完成：移除了 ${deleted} 条内容`,
-                              description: `来源: ${scanned} | 新增: ${added} | 更新: ${updated} | 删除: ${deleted}`,
-                              duration: 5,
-                            });
-                          } else {
-                            message.info({
-                              content: '✓ 同步完成：没有变化',
-                              description: `已同步 ${scanned} 个来源，内容已是最新`,
-                              duration: 4,
-                            });
+                            console.error('Scan error:', e);
                           }
-                        } catch (e) {
-                          const errorMsg = String(e instanceof Error ? e.message : e);
-                          message.error({
-                            content: '❌ 同步失败',
-                            description: errorMsg || '未知错误，请稍后再试',
-                            duration: 8,
-                          });
-                          console.error('Scan error:', e);
-                        }
-                      },
-                    });
-                  }}
+                        },
+                      });
+                    }}
+                  >
+                    同步内容
+                  </button>
+                )}
+                {!isMobileVariant && (
+                  <button id="feed" className="btn immersivePrimary" title="进入全屏沉浸浏览" onClick={onFeedClick}>
+                    🎬 沉浸看
+                  </button>
+                )}
+                <button
+                  id="openSettings"
+                  className="btn ghost"
+                  onClick={() => navigate('/settings')}
+                  title="打开设置"
                 >
-                  同步内容
+                  设置
                 </button>
-              )}
-              {!isMobileVariant && (
-                <button id="feed" className="btn immersivePrimary" title="进入全屏沉浸浏览" onClick={onFeedClick}>
-                  🎬 沉浸看
-                </button>
-              )}
-              <button
-                id="openSettings"
-                className="btn ghost"
-                onClick={() => navigate('/settings')}
-                title="打开设置"
-              >
-                设置
-              </button>
+              </div>
             </div>
           </div>
         </div>

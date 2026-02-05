@@ -189,9 +189,9 @@ body.immersiveRoute{
   position:sticky;
   top:0;
   z-index:20;
-  padding:18px 18px 12px;
-  backdrop-filter: blur(14px);
-  background: linear-gradient(180deg, rgba(7,10,18,.82), rgba(7,10,18,.55));
+  padding:14px 16px 12px;
+  backdrop-filter: blur(16px) saturate(140%);
+  background: linear-gradient(180deg, rgba(7,10,18,.92), rgba(7,10,18,.72));
   border-bottom: 1px solid rgba(255,255,255,.08);
 }
 .topbar.collapsed .controls{
@@ -200,13 +200,37 @@ body.immersiveRoute{
 .topbar.collapsed .brandText .subtitle{
   display: none;
 }
+.topbar.collapsed .topbarMainControls{
+  display: none;
+}
 .mobileOnly{ display:none; }
+
+.topbarMain{
+  display:flex;
+  align-items:center;
+  gap:14px;
+}
+.topbarMainControls{
+  flex:1 1 auto;
+  min-width: 0;
+  display:flex;
+  align-items:center;
+}
+.topbarTabs{
+  margin-top: 10px;
+}
+.topbarPanels{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
 .brand{
   display:flex;
   align-items:center;
   gap:12px;
-  margin-bottom:12px;
+  margin-bottom:0;
+  flex: 0 0 auto;
 }
 .logo{
   width:40px;height:40px;
@@ -225,13 +249,15 @@ body.immersiveRoute{
   display:flex;
   flex-direction: column;
   align-items: stretch;
-  gap:12px;
+  gap:10px;
+  margin-top: 10px;
 }
 .primaryRow{
   display:flex;
   align-items:center;
   gap:10px;
   flex-wrap:wrap;
+  width: 100%;
 }
 .primarySearch{
   flex: 1 1 420px;
@@ -354,12 +380,19 @@ body.immersiveRoute{
 .search{
   display:flex;
   align-items:center;
-  gap:8px;
-  padding:10px 12px;
+  gap:10px;
+  padding:10px 14px;
   border-radius: 999px;
-  background: rgba(255,255,255,.06);
+  background: rgba(255,255,255,.04);
   border: 1px solid rgba(255,255,255,.10);
   min-width: min(520px, 100%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.02);
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.search:focus-within{
+  border-color: rgba(124,92,255,.55);
+  box-shadow: 0 0 0 2px rgba(124,92,255,.18), 0 12px 28px rgba(0,0,0,.35);
+  background: rgba(255,255,255,.06);
 }
 .search.compactSearch{
   min-width: 100%;
@@ -376,10 +409,55 @@ body.immersiveRoute{
 }
 .search input::placeholder{ color: rgba(255,255,255,.42); }
 
+.searchSuggestions{
+  position:absolute;
+  left:0;
+  right:0;
+  top: calc(100% + 8px);
+  border-radius: 14px;
+  background: rgba(10,12,22,.96);
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 16px 40px rgba(0,0,0,.45);
+  backdrop-filter: blur(12px);
+  padding: 6px;
+  z-index: 40;
+}
+.searchSuggestionItem{
+  width: 100%;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: transparent;
+  border: 0;
+  color: rgba(255,255,255,.85);
+  cursor: pointer;
+  text-align: left;
+}
+.searchSuggestionItem:hover{
+  background: rgba(255,255,255,.06);
+}
+.searchSuggestionIcon{
+  width: 18px;
+  text-align: center;
+  opacity: .85;
+}
+.searchSuggestionLabel{
+  font-size: 13px;
+  line-height: 1.2;
+}
+
 .filters{
   display:flex;
   flex-wrap:wrap;
   gap:8px;
+}
+.topbarTabs .filters{
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.08);
 }
 .chip{
   cursor:pointer;
@@ -690,9 +768,37 @@ body.immersiveRoute{
 }
 .iconBtn:hover{ transform: translateY(-1px); background: rgba(255,255,255,.08); }
 
+.topbar .btn,
+.topbar .iconBtn,
+.topbar .quickSelect select{
+  border-radius: 999px;
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.14);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.02);
+}
+.topbar .btn.ghost{
+  background: rgba(255,255,255,.04);
+}
+.topbar .btn.ghost.active,
+.topbar .btn.toggle.active{
+  background: linear-gradient(135deg, rgba(124,92,255,.22), rgba(39,211,255,.16));
+  border-color: rgba(124,92,255,.55);
+}
+.topbar .iconBtn{
+  width: 34px;
+  height: 34px;
+  font-size: 15px;
+}
+
 .metaActions{ display:flex; gap:10px; flex-wrap:wrap; }
 
 @media (max-width: 768px){
+  .topbarMain{
+    flex-wrap: wrap;
+  }
+  .topbarMainControls{
+    width: 100%;
+  }
   .primaryRow{
     flex-direction: column;
     align-items: stretch;
@@ -1963,9 +2069,10 @@ body.immersiveRoute{
 .publisherSidebar{
   width: 320px;
   flex: 0 0 320px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(0,0,0,.22);
-  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(8,10,18,.55);
+  border-radius: 18px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.45);
   overflow: hidden;
   display:flex;
   flex-direction: column;
@@ -1973,6 +2080,7 @@ body.immersiveRoute{
 .publisherSidebarHeader{
   padding: 12px 12px 8px 12px;
   border-bottom: 1px solid rgba(255,255,255,.10);
+  background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(0,0,0,0));
 }
 .publisherSidebarTitle{
   font-weight: 850;
@@ -2031,10 +2139,10 @@ body.immersiveRoute{
   width: 100%;
   padding: 0;
   text-align: left;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.05);
   color: rgba(255,255,255,.88);
-  border-radius: 16px;
+  border-radius: 18px;
   overflow: hidden;
   cursor: pointer;
   transition: transform .12s ease, background .12s ease, border-color .12s ease;
@@ -2053,6 +2161,13 @@ body.immersiveRoute{
   width: 100%;
   /* 不固定比例：让图片决定高度，瀑布流才明显 */
   background: rgba(0,0,0,.35);
+}
+.publisherAuthorCardCover::after{
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,0) 55%, rgba(0,0,0,.45) 100%);
+  pointer-events: none;
 }
 .publisherAuthorCardCoverImg{
   width: 100%;
@@ -2123,11 +2238,11 @@ body.immersiveRoute{
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.05);
   color: rgba(255,255,255,.88);
   padding: 10px 10px;
-  border-radius: 14px;
+  border-radius: 16px;
   margin-bottom: 8px;
   cursor: pointer;
   transition: transform .12s ease, background .12s ease, border-color .12s ease;
@@ -2179,6 +2294,8 @@ body.immersiveRoute{
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
 }
 .publisherMainTitle{
   font-weight: 900;
@@ -2292,34 +2409,42 @@ body.immersiveRoute{
   pointer-events: none;
   padding: env(safe-area-inset-bottom, 0);
 }
-.feedOverlayActions{
+.feedActionRail{
   position: absolute;
-  right: 16px;
-  bottom: 120px;
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(120px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  align-items: center;
+  gap: 12px;
+  pointer-events: none;
+}
+.feedOverlayActions{
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   pointer-events: auto;
 }
 .feedActionBtn{
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: rgba(0,0,0,.6);
-  border: 2px solid rgba(255,255,255,.3);
-  color: rgba(255,255,255,.9);
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.58);
+  border: 1px solid rgba(255,255,255,.28);
+  color: rgba(255,255,255,.92);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
   transition: all 0.2s ease;
   padding: 0;
+  box-shadow: 0 10px 26px rgba(0,0,0,.35);
 }
 .feedActionBtn:hover{
-  background: rgba(0,0,0,.8);
+  background: rgba(0,0,0,.78);
   border-color: rgba(255,255,255,.5);
-  transform: scale(1.1);
+  transform: scale(1.06);
 }
 .feedActionBtn:active{
   transform: scale(0.95);
@@ -2329,16 +2454,19 @@ body.immersiveRoute{
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,.62) 55%, rgba(0,0,0,.85) 100%);
+  padding: 18px calc(16px + env(safe-area-inset-right, 0px)) calc(18px + env(safe-area-inset-bottom, 0px)) calc(16px + env(safe-area-inset-left, 0px));
+  background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.60) 50%, rgba(0,0,0,.88) 100%);
   color: rgba(255,255,255,.92);
   pointer-events: auto;
+}
+.feedInfo{
+  max-width: min(680px, 86vw);
 }
 .feedOverlayBottom .feedAuthor{
   font-weight: 700;
   font-size: 15px;
   margin-bottom: 6px;
-  color: rgba(255,255,255,.95);
+  color: rgba(255,255,255,.96);
 }
 .feedOverlayBottom .feedTitle{
   font-weight: 820;
@@ -2383,17 +2511,17 @@ body.immersiveRoute{
 }
 
 @media (max-width: 520px){
-  .feedOverlayActions{
-    right: 12px;
-    bottom: 100px;
-    gap: 14px;
+  .feedActionRail{
+    right: calc(12px + env(safe-area-inset-right, 0px));
+    bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+    gap: 12px;
   }
   .feedActionBtn{
-    width: 52px;
-    height: 52px;
+    width: 54px;
+    height: 54px;
   }
   .feedOverlayBottom{
-    padding: 16px 12px calc(16px + env(safe-area-inset-bottom, 0px));
+    padding: 16px calc(12px + env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px));
   }
   .feedOverlayBottom .feedTitle{
     overflow: hidden;

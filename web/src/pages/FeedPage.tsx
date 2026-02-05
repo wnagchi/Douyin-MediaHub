@@ -24,6 +24,8 @@ type FlatItem = {
   group: MediaGroup;
 };
 
+const PAGE_SIZE = 30;
+
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
@@ -60,6 +62,11 @@ export default function FeedPage({ active = true }: { active?: boolean }) {
       i: Number.isFinite(i) ? i : 0,
     };
   }, [sp]);
+  const targetKey = useMemo(
+    () => `${target.fid}|${target.fn}|${target.g}|${target.i}`,
+    [target.fid, target.fn, target.g, target.i]
+  );
+  const targetPageHint = useMemo(() => Math.max(1, Math.floor(target.g / PAGE_SIZE) + 1), [target.g]);
 
   const filtersKey = useMemo(() => JSON.stringify(filters), [filters]);
   // 注意：g/i 会在滑动时频繁变化（我们会 replace 到 URL），但这不应触发“清空并重拉”。
@@ -174,7 +181,7 @@ export default function FeedPage({ active = true }: { active?: boolean }) {
 
   const fetchPage = useCallback(
     async (page: number) => {
-      const params: Record<string, string | number> = { page, pageSize: 30 };
+      const params: Record<string, string | number> = { page, pageSize: PAGE_SIZE };
       if (filters.q) params.q = filters.q;
       if (filters.type) params.type = filters.type;
       if (filters.dirId) params.dirId = filters.dirId;
@@ -193,8 +200,26 @@ export default function FeedPage({ active = true }: { active?: boolean }) {
     // 关键：只要 fid/fn+filters 没变，就不要清空并重拉。
     // 但在 StrictMode 首次双执行时，如果还在 loading，允许重新触发，避免被清空导致卡住。
     // Also skip if user is sliding in immersive mode (URL changes from sliding, not navigation)
-    if (lastBootstrapKeyRef.current === bootstrapKey && !stateRef.current.loading) {
-      return;
+    const canReuse = lastBootstrapKeyRef.current === bootstrapKey && !stateRef.current.loading;
+    if (canReuse) {
+      if (navType === 'REPLACE' || isSlidingRef.current) {
+        // URL change from in-feed sliding, don't reset state
+        return;
+      }
+      // Same filters but new target (e.g. user clicked another tile): reuse current groups and jump
+      const existing = stateRef.current.groups;
+      if (existing.length) {
+        const found = findTarget(existing);
+        if (found) {
+          setState((prev) => ({
+            ...prev,
+            groupIdx: found.groupIdx,
+            itemIdx: found.itemIdx,
+            found: found.found,
+          }));
+          return;
+        }
+      }
     }
     if (isSlidingRef.current) {
       // User is sliding in immersive mode, don't reset state
@@ -221,7 +246,7 @@ export default function FeedPage({ active = true }: { active?: boolean }) {
     }));
 
     (async () => {
-      const MAX_PAGES = 20;
+      const MAX_PAGES = Math.max(20, targetPageHint);
       let page = 1;
       const all: MediaGroup[] = [];
       let pagination: PaginationInfo | null = null;
@@ -311,7 +336,7 @@ export default function FeedPage({ active = true }: { active?: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [active, bootstrapKey, fetchPage, findTarget]);
+  }, [active, bootstrapKey, targetKey, targetPageHint, navType, fetchPage, findTarget]);
 
   const loadMoreIfNeeded = useCallback(async () => {
     // 同步 guard：避免 loading=true 时仍继续发请求导致并发/重复追加
