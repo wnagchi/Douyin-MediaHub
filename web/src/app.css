@@ -1871,7 +1871,7 @@ body.immersiveRoute{
 .modalBody video,
 .modalVideo{
   max-width:100%;
-  max-height: calc(100vh - 220px);
+  max-height: calc(100vh - 120px);
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,.10);
   background: rgba(0,0,0,.90);
@@ -1989,7 +1989,7 @@ body.immersiveRoute{
   z-index: 30;
   padding: calc(12px + env(safe-area-inset-top)) 16px 10px;
   border-bottom: 0;
-  background: linear-gradient(180deg, rgba(0,0,0,.65), rgba(0,0,0,0));
+  background: linear-gradient(80deg, rgba(0,0,0,.2), rgba(0,0,0,0));
   backdrop-filter: blur(8px);
 }
 .modal.feed .modalBody{
