@@ -2,7 +2,7 @@ name: Deploy Douyin-MediaHub (Windows)
 
 on:
   push:
-    branches: ["main"]   # 如果你用 master，改成 master
+    branches: ["main"]
 
 concurrency:
   group: deploy-douyin-mediahub
@@ -11,41 +11,33 @@ concurrency:
 jobs:
   deploy:
     runs-on: self-hosted
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Sync, build and restart service
+      - name: Deploy via git, build, restart
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
 
-          $src = $env:GITHUB_WORKSPACE
-          $dst = "C:\code\Douyin-MediaHub"
+          $repoDir = "C:\code\Douyin-MediaHub"
+          $branch  = "main"
 
-          if (!(Test-Path $dst)) {
-            throw "Deploy directory not found: $dst"
-          }
+          if (!(Test-Path $repoDir)) { throw "Repo dir not found: $repoDir" }
+          if (!(Test-Path (Join-Path $repoDir ".git"))) { throw "Not a git repo: $repoDir" }
 
-          Write-Host "Syncing code to $dst"
+          Set-Location $repoDir
 
-          # 同步代码（排除 .git / workflow / node_modules）
-          robocopy $src $dst /MIR /XD ".git" ".github" "node_modules" /R:2 /W:2
-          $rc = $LASTEXITCODE
-          if ($rc -ge 8) { throw "robocopy failed with exit code $rc" }
+          Write-Host "Node version:"
+          node -v
+          Write-Host "NPM version:"
+          npm -v
 
-          Set-Location $dst
+          git fetch --all --prune
+          git checkout $branch
+          git reset --hard "origin/$branch"
+          git clean -fd
 
-          Write-Host "Installing dependencies..."
           npm ci
-
-          Write-Host "Building project..."
           npm run build
 
-          Write-Host "Restarting WinSW service..."
           Restart-Service -Name "DouyinMediaHub" -Force
 
-          Write-Host "Deploy completed successfully."
+          Write-Host "Deploy completed."
