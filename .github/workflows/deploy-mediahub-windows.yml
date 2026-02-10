@@ -12,23 +12,26 @@ jobs:
   deploy:
     runs-on: self-hosted
     steps:
-      - name: Deploy via git, build, restart
+      - name: Deploy via git, build, restart (robust)
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
 
           $repoDir = "C:\code\Douyin-MediaHub"
           $branch  = "main"
+          $service = "DouyinMediaHub"
+          $port    = 3000
 
           if (!(Test-Path $repoDir)) { throw "Repo dir not found: $repoDir" }
           if (!(Test-Path (Join-Path $repoDir ".git"))) { throw "Not a git repo: $repoDir" }
 
           Set-Location $repoDir
 
-          Write-Host "Node version:"
-          node -v
-          Write-Host "NPM version:"
-          npm -v
+          Write-Host "Node version:"; node -v
+          Write-Host "NPM version:";  npm -v
+
+          # Git safe.directory for SYSTEM runner
+          git config --global --add safe.directory C:/code/Douyin-MediaHub
 
           git fetch --all --prune
           git checkout $branch
@@ -38,6 +41,27 @@ jobs:
           npm ci
           npm run build
 
-          Restart-Service -Name "DouyinMediaHub" -Force
+          Write-Host "Stopping service $service ..."
+          try {
+            Stop-Service -Name $service -Force -ErrorAction Stop
+          } catch {
+            Write-Host "Stop-Service failed, will try to kill process on port $port"
+          }
 
-          Write-Host "Deploy completed."
+          for ($i=0; $i -lt 20; $i++) {
+            $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+            if (-not $conn) { break }
+            Start-Sleep -Seconds 1
+          }
+
+          $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+          if ($conn) {
+            $pid = $conn.OwningProcess
+            Write-Host "Killing PID $pid listening on port $port ..."
+            taskkill /PID $pid /F | Out-Null
+          }
+
+          Write-Host "Starting service $service ..."
+          Start-Service -Name $service
+
+          Write-Host "Deploy completed successfully."
