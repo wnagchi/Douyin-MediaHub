@@ -196,6 +196,7 @@ export default function MediaTiles({
 
   if (loading && !items.length) {
     const skeletonCount = expanded ? 10 : 14;
+    const heights = expanded ? [220, 260, 300] : [180, 220, 260];
     return (
       <div>
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 masonry-gap">
@@ -204,10 +205,10 @@ export default function MediaTiles({
               key={`sk-${i}`}
               className="border border-white/10 bg-black/20 overflow-hidden shadow-[0_18px_60px_rgba(0,0,0,.45)]"
             >
-              <div className="h-[220px] md:h-[260px] bg-white/10 animate-pulse"></div>
+              <div className="skeleton skeletonMuted" style={{ height: heights[i % heights.length] }}></div>
               <div className="p-2">
-                <div className="h-4 w-3/4 bg-white/10 animate-pulse rounded"></div>
-                <div className="mt-2 h-3 w-1/2 bg-white/10 animate-pulse rounded"></div>
+                <div className="skeleton skeletonText" style={{ width: '70%' }}></div>
+                <div className="mt-2 skeleton skeletonText" style={{ width: '45%' }}></div>
               </div>
             </div>
           ))}

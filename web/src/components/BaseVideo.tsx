@@ -146,7 +146,7 @@ export default function BaseVideo({
   return (
     <div ref={wrapperRef} className={`relative ${wrapperClassName}`} style={wrapperStyle}>
       {!loaded && showSkeleton && (
-        <div className="absolute inset-0 bg-white/10 animate-pulse" aria-hidden="true"></div>
+        <div className="absolute inset-0 skeleton skeletonMuted" aria-hidden="true"></div>
       )}
       {shouldLoad && (
         <Player

@@ -103,10 +103,10 @@ export default function MediaGrid({
           {Array.from({ length: skCount }).map((_, i) => (
             <div key={`sk-${i}`}>
               <div className="rounded-[16px] border border-white/10 bg-black/20 overflow-hidden">
-                <div className="h-[220px] bg-white/10 animate-pulse"></div>
+                <div className="skeleton skeletonMuted" style={{ height: 220 }}></div>
                 <div className="p-3">
-                  <div className="h-4 w-2/3 bg-white/10 animate-pulse rounded"></div>
-                  <div className="mt-2 h-3 w-1/2 bg-white/10 animate-pulse rounded"></div>
+                  <div className="skeleton skeletonText" style={{ width: '65%' }}></div>
+                  <div className="mt-2 skeleton skeletonText" style={{ width: '45%' }}></div>
                 </div>
               </div>
             </div>

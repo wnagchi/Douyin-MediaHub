@@ -898,6 +898,70 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     };
   }
 
+  function queryStats({ authorLimit = 20 } = {}) {
+    initDb();
+    const safeAuthorLimit = Math.min(200, Math.max(1, Number.isFinite(authorLimit) ? authorLimit : 20));
+
+    const totalItemsRow = db.prepare(`SELECT COUNT(*) AS c FROM media_items`).get();
+    const totalGroupsRow = db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM (
+           SELECT 1
+           FROM media_items mi
+           GROUP BY COALESCE(mi.timeText,''), COALESCE(mi.author,''), COALESCE(mi.theme,'')
+         )`
+      )
+      .get();
+
+    const rows = db
+      .prepare(
+        `SELECT
+           mit.type AS type,
+           COUNT(*) AS itemCount,
+           COUNT(DISTINCT (COALESCE(mi.timeText,'') || '|' || COALESCE(mi.author,'') || '|' || COALESCE(mi.theme,''))) AS groupCount
+         FROM media_item_types mit
+         JOIN media_items mi
+           ON mi.dirId = mit.dirId AND mi.filename = mit.filename
+         WHERE COALESCE(mit.type,'') <> ''
+         GROUP BY mit.type
+         ORDER BY itemCount DESC, groupCount DESC, mit.type ASC`
+      )
+      .all();
+
+    const authorRows = db
+      .prepare(
+        `SELECT
+           COALESCE(mi.author,'') AS author,
+           COUNT(*) AS itemCount,
+           COUNT(DISTINCT (COALESCE(mi.timeText,'') || '|' || COALESCE(mi.author,'') || '|' || COALESCE(mi.theme,''))) AS groupCount,
+           MAX(COALESCE(mi.timestampMs, 0)) AS latestTimestampMs
+         FROM media_items mi
+         GROUP BY COALESCE(mi.author,'')
+         ORDER BY itemCount DESC, groupCount DESC, latestTimestampMs DESC, author ASC
+         LIMIT :limit`
+      )
+      .all({ limit: safeAuthorLimit });
+
+    return {
+      ok: true,
+      totals: {
+        items: Number(totalItemsRow?.c) || 0,
+        groups: Number(totalGroupsRow?.c) || 0,
+      },
+      types: rows.map((r) => ({
+        type: String(r.type ?? ""),
+        itemCount: Number(r.itemCount) || 0,
+        groupCount: Number(r.groupCount) || 0,
+      })),
+      authors: authorRows.map((r) => ({
+        author: String(r.author ?? ""),
+        itemCount: Number(r.itemCount) || 0,
+        groupCount: Number(r.groupCount) || 0,
+        latestTimestampMs: Number(r.latestTimestampMs) || 0,
+      })),
+    };
+  }
+
   return {
     get dbPath() {
       return dbPath;
@@ -907,6 +971,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     queryResources,
     queryAuthors,
     queryTags,
+    queryStats,
   };
 }
 

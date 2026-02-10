@@ -179,6 +179,43 @@ export async function fetchTags(params: { q?: string; dirId?: string; limit?: nu
   return cachedFetch<TagsResponse>(url, {}, { endpoint: '/api/tags', params });
 }
 
+export interface ResourceTypeStat {
+  type: string;
+  itemCount: number;
+  groupCount: number;
+}
+
+export interface ResourceAuthorStat {
+  author: string;
+  itemCount: number;
+  groupCount: number;
+  latestTimestampMs?: number;
+}
+
+export interface ResourceStatsResponse {
+  ok: boolean;
+  error?: string;
+  code?: string;
+  totals?: {
+    items: number;
+    groups: number;
+  };
+  types?: ResourceTypeStat[];
+  authors?: ResourceAuthorStat[];
+  mediaDirs?: string[];
+  defaultMediaDirs?: string[];
+  __cache?: CacheMeta;
+}
+
+export async function fetchResourceStats(authorLimit = 20): Promise<ResourceStatsResponse> {
+  const limit = Number.isFinite(authorLimit) ? authorLimit : 20;
+  const qs = new URLSearchParams();
+  if (limit) qs.set('authorLimit', String(limit));
+  const url = qs.toString() ? `/api/stats?${qs.toString()}` : '/api/stats';
+  const r = await fetch(url, { cache: 'no-store' });
+  return asJson<ResourceStatsResponse>(r);
+}
+
 export interface AuthorStat {
   author: string; // 可能为空字符串（未知发布者）
   groupCount: number;

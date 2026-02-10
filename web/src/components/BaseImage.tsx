@@ -96,14 +96,7 @@ export default function BaseImage({
   return (
     <div ref={wrapperRef} className={`relative ${wrapperClassName} `} style={wrapperStyle}>
       {!loaded && showSkeleton && (
-        <div
-          className="absolute inset-0 bg-gradient-to-br from-white/8 via-white/5 to-white/8"
-          aria-hidden="true"
-          style={{
-            backgroundSize: '200% 200%',
-            animation: 'shimmer 2s ease-in-out infinite',
-          }}
-        ></div>
+        <div className="absolute inset-0 skeleton skeletonMuted" aria-hidden="true"></div>
       )}
       <Image
         preview={false}

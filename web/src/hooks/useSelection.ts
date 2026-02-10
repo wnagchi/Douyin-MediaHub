@@ -72,7 +72,7 @@ export function useSelection({ groups, onRefresh }: UseSelectionOptions) {
     }
   }, [selectedItems, onRefresh]);
 
-  const handleBatchDownload = useCallback(() => {
+  const handleBatchDownload = useCallback(async () => {
     if (selectedItems.size === 0) return;
 
     const items = Array.from(selectedItems).map((key) => {
@@ -80,9 +80,27 @@ export function useSelection({ groups, onRefresh }: UseSelectionOptions) {
       return { dirId, filename };
     });
 
-    // 为每个文件创建下载链接并触发下载
-    items.forEach(({ dirId, filename }) => {
-      const url = `/media/${dirId}/${encodeURIComponent(filename)}`;
+    try {
+      const r = await fetch('/api/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      });
+
+      if (!r.ok) {
+        let errorMsg = `下载失败（${r.status}）`;
+        try {
+          const j = await r.json();
+          if (j?.error) errorMsg = j.error;
+        } catch {}
+        throw new Error(errorMsg);
+      }
+
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const disposition = r.headers.get('Content-Disposition') || r.headers.get('content-disposition') || '';
+      const match = /filename="([^"]+)"/.exec(disposition);
+      const filename = match?.[1] || `media-${Date.now()}.zip`;
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;
@@ -90,7 +108,10 @@ export function useSelection({ groups, onRefresh }: UseSelectionOptions) {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-    });
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      alert(`下载失败：${error instanceof Error ? error.message : String(error)}`);
+    }
   }, [selectedItems]);
 
   return {

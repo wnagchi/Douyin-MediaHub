@@ -1,6 +1,7 @@
 const path = require("path");
 const fsp = require("fs/promises");
 const { URL } = require("url");
+const archiver = require("archiver");
 
 const { send, sendJson } = require("./http/respond");
 const { safeJoin, serveStaticFile } = require("./http/static");
@@ -187,6 +188,43 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir, scanService })
 
         cacheManager.setCacheHeaders(res, {
           maxAge: 600, // 10分钟
+          etag,
+          lastModified: new Date(),
+        });
+
+        return sendJson(res, 200, r);
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
+      }
+    }
+
+    if (req.method === "GET" && pathname === "/api/stats") {
+      const mediaDirs = mediaStore.getMediaDirs();
+      const existing = await mediaStore.listExistingDirs();
+
+      if (!existing.length) {
+        return sendJson(res, 200, {
+          ok: false,
+          code: "NO_MEDIA_DIR",
+          error: "未找到 media 目录，请在页面里配置资源目录（绝对路径）。",
+          mediaDirs: mediaDirs.map((d) => d.path),
+          defaultMediaDirs: mediaStore.getDefaultDirs().map((d) => d.path),
+        });
+      }
+
+      try {
+        const authorLimitParam = Number.parseInt(u.searchParams.get("authorLimit") || "20", 10);
+        const authorLimit = Number.isFinite(authorLimitParam) ? authorLimitParam : 20;
+        const r = indexer.queryStats({ authorLimit });
+        const etag = cacheManager.generateETag(r);
+        if (cacheManager.shouldReturn304(req, etag)) {
+          res.writeHead(304);
+          res.end();
+          return;
+        }
+
+        cacheManager.setCacheHeaders(res, {
+          maxAge: 60,
           etag,
           lastModified: new Date(),
         });
@@ -409,6 +447,68 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir, scanService })
         return sendJson(res, 200, { ok: true, name, dirId: dir.id, info });
       } catch (e) {
         return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
+      }
+    }
+
+    if (req.method === "POST" && pathname === "/api/download") {
+      try {
+        const body = await readJsonBody(req, { limitBytes: 2 * 1024 * 1024 });
+        const items = Array.isArray(body?.items) ? body.items : [];
+        if (!items.length) return sendJson(res, 400, { ok: false, error: "items 不能为空" });
+        if (items.length > 2000) return sendJson(res, 400, { ok: false, error: "items 过多" });
+
+        const dirs = mediaStore.getMediaDirs();
+        const now = new Date();
+        const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
+          now.getDate()
+        ).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+        const zipName = `media-${stamp}.zip`;
+
+        res.writeHead(200, {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="${zipName}"`,
+          "Cache-Control": "no-store",
+        });
+
+        const archive = archiver("zip", { zlib: { level: 6 } });
+        archive.on("error", (err) => {
+          // eslint-disable-next-line no-console
+          console.warn(`[download] zip error: ${String(err?.message || err)}`);
+          try {
+            res.end();
+          } catch {}
+        });
+        archive.pipe(res);
+
+        let added = 0;
+        for (const it of items) {
+          const dirId = (it?.dirId || "").toString().trim();
+          const filename = (it?.filename || "").toString();
+          if (!dirId || !filename) continue;
+          const dir = dirs.find((d) => d.id === dirId);
+          if (!dir) continue;
+          const filePath = safeJoin(dir.path, filename);
+          if (!filePath) continue;
+          try {
+            const st = await fsp.stat(filePath);
+            if (!st.isFile()) continue;
+          } catch {
+            continue;
+          }
+          const rel = filename.replace(/\\/g, "/").replace(/^\/+/, "");
+          const entryName = `${dirId}/${rel}`;
+          archive.file(filePath, { name: entryName });
+          added++;
+        }
+
+        if (added === 0) {
+          archive.append("", { name: "empty.txt" });
+        }
+
+        archive.finalize();
+        return;
+      } catch (e) {
+        return sendJson(res, 400, { ok: false, error: String(e?.message || e) });
       }
     }
 
@@ -709,4 +809,3 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir, scanService })
 }
 
 module.exports = { createHandler };
-

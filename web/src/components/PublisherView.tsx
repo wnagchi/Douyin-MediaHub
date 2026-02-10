@@ -304,6 +304,120 @@ export default function PublisherView({
   // 窄屏交互：进入详情后只展示详情页，避免上下两个大区块造成“又长又乱”
   const showList = !isNarrow || selectedAuthor == null;
   const showDetail = !isNarrow || selectedAuthor != null;
+  const showAuthorSkeleton = authorsLoading && authors.length === 0;
+  const showAuthorLoadingMoreSkeleton = authorsLoadingMore && authors.length > 0;
+  const authorSkeletonCount = isNarrow ? 8 : 10;
+  const authorLoadingMoreCount = 3;
+  const authorMasonryItems = (() => {
+    if (showAuthorSkeleton) {
+      return Array.from({ length: authorSkeletonCount }).map((_, idx) => ({
+        key: `author-sk-${idx}`,
+        data: null,
+        children: (
+          <div className="publisherAuthorCard" aria-hidden="true">
+            <div className="publisherAuthorCardCover">
+              <div className="skeleton skeletonMuted" style={{ height: 180 }}></div>
+            </div>
+            <div className="publisherAuthorCardBody">
+              <div className="skeleton skeletonText" style={{ width: '70%' }}></div>
+              <div className="publisherAuthorCardMeta">
+                <span className="skeleton skeletonChip" style={{ width: 44 }}></span>
+                <span className="skeleton skeletonChip" style={{ width: 44 }}></span>
+              </div>
+            </div>
+          </div>
+        ),
+      }));
+    }
+
+    const baseItems = authors.map((a) => {
+      const label = fmtAuthorLabel(a.author);
+      const isActive = selectedAuthor === a.author;
+      const coverSrc = a.latestItem?.thumbUrl || a.latestItem?.url || '';
+      const isVideo = a.latestItem?.kind === 'video';
+      const hasCover = Boolean(coverSrc);
+
+      return {
+        key: `author-${a.author}`,
+        data: a,
+        children: (
+          <Card
+            hoverable
+            className={`publisherAuthorCard ${isActive ? 'active' : ''}`}
+            style={{
+              backgroundColor: 'rgba(0, 0, 0, 0.3)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: 16,
+              overflow: 'hidden',
+            }}
+            styles={{ body: { padding: 10, backgroundColor: 'transparent' } }}
+            cover={
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedAuthor(a.author)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setSelectedAuthor(a.author);
+                  }
+                }}
+                className="publisherAuthorCardCover"
+                title={`${label} | groups=${a.groupCount} items=${a.itemCount}`}
+              >
+                {hasCover ? (
+                  <BaseImage
+                    src={coverSrc}
+                    alt={label}
+                    wrapperClassName="publisherAuthorCardCoverImg"
+                    className="publisherAuthorCardCoverImgEl"
+                    // 让封面按原始比例自适应高度（否则所有卡片同高，看起来像普通网格）
+                    imgStyle={{ width: '100%', height: 'auto' }}
+                    showSkeleton={true}
+                  />
+                ) : (
+                  <div className="publisherAuthorCardCoverEmpty">暂无封面</div>
+                )}
+                <div className="publisherAuthorCardOverlay" aria-hidden="true">
+                  {isVideo && <span className="publisherAuthorCardPlay">▶</span>}
+                </div>
+              </div>
+            }
+            onClick={() => setSelectedAuthor(a.author)}
+          >
+            <div className="publisherAuthorCardName" title={label}>
+              {label}
+            </div>
+            <div className="publisherAuthorCardMeta">
+              <span className="chip mini">{a.groupCount}g</span>
+              <span className="chip mini">{a.itemCount}i</span>
+            </div>
+          </Card>
+        ),
+      };
+    });
+
+    if (!showAuthorLoadingMoreSkeleton) return baseItems;
+    const moreItems = Array.from({ length: authorLoadingMoreCount }).map((_, idx) => ({
+      key: `author-sk-more-${idx}`,
+      data: null,
+      children: (
+        <div className="publisherAuthorCard" aria-hidden="true">
+          <div className="publisherAuthorCardCover">
+            <div className="skeleton skeletonMuted" style={{ height: 160 }}></div>
+          </div>
+          <div className="publisherAuthorCardBody">
+            <div className="skeleton skeletonText" style={{ width: '60%' }}></div>
+            <div className="publisherAuthorCardMeta">
+              <span className="skeleton skeletonChip" style={{ width: 40 }}></span>
+              <span className="skeleton skeletonChip" style={{ width: 40 }}></span>
+            </div>
+          </div>
+        </div>
+      ),
+    }));
+    return [...baseItems, ...moreItems];
+  })();
 
   return (
     <div
@@ -345,96 +459,52 @@ export default function PublisherView({
               columns={{ xs: 2, sm: 3, md: 4 }}
               gutter={{ xs: 12, md: 16 }}
               fresh
-              items={authors.map((a) => {
-                const label = fmtAuthorLabel(a.author);
-                const isActive = selectedAuthor === a.author;
-                const coverSrc = a.latestItem?.thumbUrl || a.latestItem?.url || '';
-                const isVideo = a.latestItem?.kind === 'video';
-                const hasCover = Boolean(coverSrc);
-
-                return {
-                  key: `author-${a.author}`,
-                  data: a,
-                  children: (
-                    <Card
-                      hoverable
-                      className={`publisherAuthorCard ${isActive ? 'active' : ''}`}
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        borderRadius: 16,
-                        overflow: 'hidden',
-                      }}
-                      styles={{ body: { padding: 10, backgroundColor: 'transparent' } }}
-                      cover={
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => setSelectedAuthor(a.author)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              setSelectedAuthor(a.author);
-                            }
-                          }}
-                          className="publisherAuthorCardCover"
-                          title={`${label} | groups=${a.groupCount} items=${a.itemCount}`}
-                        >
-                          {hasCover ? (
-                            <BaseImage
-                              src={coverSrc}
-                              alt={label}
-                              wrapperClassName="publisherAuthorCardCoverImg"
-                              className="publisherAuthorCardCoverImgEl"
-                              // 让封面按原始比例自适应高度（否则所有卡片同高，看起来像普通网格）
-                              imgStyle={{ width: '100%', height: 'auto' }}
-                              showSkeleton={true}
-                            />
-                          ) : (
-                            <div className="publisherAuthorCardCoverEmpty">暂无封面</div>
-                          )}
-                          <div className="publisherAuthorCardOverlay" aria-hidden="true">
-                            {isVideo && <span className="publisherAuthorCardPlay">▶</span>}
-                          </div>
-                        </div>
-                      }
-                      onClick={() => setSelectedAuthor(a.author)}
-                    >
-                      <div className="publisherAuthorCardName" title={label}>
-                        {label}
-                      </div>
-                      <div className="publisherAuthorCardMeta">
-                        <span className="chip mini">{a.groupCount}g</span>
-                        <span className="chip mini">{a.itemCount}i</span>
-                      </div>
-                    </Card>
-                  ),
-                };
-              })}
+              items={authorMasonryItems}
             />
             <div ref={authorSentinelRef} style={{ height: 1 }} aria-hidden="true" />
           </div>
         ) : (
           <div className="publisherAuthorList">
-            {authors.map((a) => {
-              const label = fmtAuthorLabel(a.author);
-              const isActive = selectedAuthor === a.author;
-              return (
-                <button
-                  key={`author-${a.author}`}
-                  className={`publisherAuthorRow ${isActive ? 'active' : ''}`}
-                  onClick={() => setSelectedAuthor(a.author)}
-                  title={`${label} | groups=${a.groupCount} items=${a.itemCount}`}
-                  type="button"
-                >
-                  <div className="publisherAuthorName">{label}</div>
+            {showAuthorSkeleton &&
+              Array.from({ length: authorSkeletonCount }).map((_, idx) => (
+                <div key={`author-sk-row-${idx}`} className="publisherAuthorRow" aria-hidden="true">
+                  <div className="skeleton skeletonText" style={{ width: '40%' }}></div>
                   <div className="publisherAuthorCounts">
-                    <span className="chip mini">{a.groupCount}g</span>
-                    <span className="chip mini">{a.itemCount}i</span>
+                    <span className="skeleton skeletonChip" style={{ width: 44 }}></span>
+                    <span className="skeleton skeletonChip" style={{ width: 44 }}></span>
                   </div>
-                </button>
-              );
-            })}
+                </div>
+              ))}
+            {!showAuthorSkeleton &&
+              authors.map((a) => {
+                const label = fmtAuthorLabel(a.author);
+                const isActive = selectedAuthor === a.author;
+                return (
+                  <button
+                    key={`author-${a.author}`}
+                    className={`publisherAuthorRow ${isActive ? 'active' : ''}`}
+                    onClick={() => setSelectedAuthor(a.author)}
+                    title={`${label} | groups=${a.groupCount} items=${a.itemCount}`}
+                    type="button"
+                  >
+                    <div className="publisherAuthorName">{label}</div>
+                    <div className="publisherAuthorCounts">
+                      <span className="chip mini">{a.groupCount}g</span>
+                      <span className="chip mini">{a.itemCount}i</span>
+                    </div>
+                  </button>
+                );
+              })}
+            {showAuthorLoadingMoreSkeleton &&
+              Array.from({ length: authorLoadingMoreCount }).map((_, idx) => (
+                <div key={`author-sk-more-row-${idx}`} className="publisherAuthorRow" aria-hidden="true">
+                  <div className="skeleton skeletonText" style={{ width: '32%' }}></div>
+                  <div className="publisherAuthorCounts">
+                    <span className="skeleton skeletonChip" style={{ width: 40 }}></span>
+                    <span className="skeleton skeletonChip" style={{ width: 40 }}></span>
+                  </div>
+                </div>
+              ))}
             <div ref={authorSentinelRef} style={{ height: 1 }} aria-hidden="true" />
           </div>
         )}
