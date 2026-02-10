@@ -1,0 +1,51 @@
+name: Deploy Douyin-MediaHub (Windows)
+
+on:
+  push:
+    branches: ["main"]   # 如果你用 master，改成 master
+
+concurrency:
+  group: deploy-douyin-mediahub
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync, build and restart service
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $src = $env:GITHUB_WORKSPACE
+          $dst = "C:\code\Douyin-MediaHub"
+
+          if (!(Test-Path $dst)) {
+            throw "Deploy directory not found: $dst"
+          }
+
+          Write-Host "Syncing code to $dst"
+
+          # 同步代码（排除 .git / workflow / node_modules）
+          robocopy $src $dst /MIR /XD ".git" ".github" "node_modules" /R:2 /W:2
+          $rc = $LASTEXITCODE
+          if ($rc -ge 8) { throw "robocopy failed with exit code $rc" }
+
+          Set-Location $dst
+
+          Write-Host "Installing dependencies..."
+          npm ci
+
+          Write-Host "Building project..."
+          npm run build
+
+          Write-Host "Restarting WinSW service..."
+          Restart-Service -Name "DouyinMediaHub" -Force
+
+          Write-Host "Deploy completed successfully."
