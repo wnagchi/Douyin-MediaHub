@@ -257,6 +257,15 @@ const Topbar = memo(function Topbar({
             ⚙
           </button>
           <button
+            id="refreshPageEntry"
+            className="iconBtn"
+            title="刷新页面"
+            onClick={() => window.location.reload()}
+            aria-label="刷新页面"
+          >
+            ⟳
+          </button>
+          <button
             id="toggleTopbarCollapsedMini"
             className="iconBtn mobileOnly"
             title={collapsed ? '展开工具栏' : '收起工具栏'}
