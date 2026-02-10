@@ -1,55 +1,67 @@
-$ErrorActionPreference = "Stop"
+name: Deploy Douyin-MediaHub (Windows)
 
-$repoDir = "C:\code\Douyin-MediaHub"
-$branch  = "main"
-$service = "DouyinMediaHub"
-$port    = 3000
+on:
+  push:
+    branches: ["main"]
 
-if (!(Test-Path $repoDir)) { throw "Repo dir not found: $repoDir" }
-if (!(Test-Path (Join-Path $repoDir ".git"))) { throw "Not a git repo: $repoDir" }
+concurrency:
+  group: deploy-douyin-mediahub
+  cancel-in-progress: true
 
-Set-Location $repoDir
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Deploy via git, build, restart (robust)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
 
-Write-Host "Node version:"; node -v
-Write-Host "NPM version:";  npm -v
+          $repoDir = "C:\code\Douyin-MediaHub"
+          $branch  = "main"
+          $service = "DouyinMediaHub"
+          $port    = 3000
 
-# --- Fix 1: Git safe.directory for SYSTEM runner ---
-git config --global --add safe.directory C:/code/Douyin-MediaHub
+          if (!(Test-Path $repoDir)) { throw "Repo dir not found: $repoDir" }
+          if (!(Test-Path (Join-Path $repoDir ".git"))) { throw "Not a git repo: $repoDir" }
 
-# --- Update code ---
-git fetch --all --prune
-git checkout $branch
-git reset --hard "origin/$branch"
-git clean -fd
+          Set-Location $repoDir
 
-# --- Build ---
-npm ci
-npm run build
+          Write-Host "Node version:"; node -v
+          Write-Host "NPM version:";  npm -v
 
-# --- Restart service (robust) ---
-Write-Host "Stopping service $service ..."
-try {
-  Stop-Service -Name $service -Force -ErrorAction Stop
-} catch {
-  Write-Host "Stop-Service failed or timed out, will try to kill process on port $port"
-}
+          # Git safe.directory for SYSTEM runner
+          git config --global --add safe.directory C:/code/Douyin-MediaHub
 
-# 如果服务还在，尝试按端口杀掉占用进程
-$maxWait = 20
-for ($i=0; $i -lt $maxWait; $i++) {
-  $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-  if (-not $conn) { break }
-  Start-Sleep -Seconds 1
-}
+          git fetch --all --prune
+          git checkout $branch
+          git reset --hard "origin/$branch"
+          git clean -fd
 
-$conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-if ($conn) {
-  $pid = $conn.OwningProcess
-  Write-Host "Killing PID $pid listening on port $port ..."
-  taskkill /PID $pid /F | Out-Null
-}
+          npm ci
+          npm run build
 
-Write-Host "Starting service $service ..."
-Start-Service -Name $service
+          Write-Host "Stopping service $service ..."
+          try {
+            Stop-Service -Name $service -Force -ErrorAction Stop
+          } catch {
+            Write-Host "Stop-Service failed, will try to kill process on port $port"
+          }
 
-Write-Host "Deploy completed."
+          for ($i=0; $i -lt 20; $i++) {
+            $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+            if (-not $conn) { break }
+            Start-Sleep -Seconds 1
+          }
+
+          $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+          if ($conn) {
+            $pid = $conn.OwningProcess
+            Write-Host "Killing PID $pid listening on port $port ..."
+            taskkill /PID $pid /F | Out-Null
+          }
+
+          Write-Host "Starting service $service ..."
+          Start-Service -Name $service
+
+          Write-Host "Deploy completed successfully."
