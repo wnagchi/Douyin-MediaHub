@@ -1,43 +1,55 @@
-name: Deploy Douyin-MediaHub (Windows)
+$ErrorActionPreference = "Stop"
 
-on:
-  push:
-    branches: ["main"]
+$repoDir = "C:\code\Douyin-MediaHub"
+$branch  = "main"
+$service = "DouyinMediaHub"
+$port    = 3000
 
-concurrency:
-  group: deploy-douyin-mediahub
-  cancel-in-progress: true
+if (!(Test-Path $repoDir)) { throw "Repo dir not found: $repoDir" }
+if (!(Test-Path (Join-Path $repoDir ".git"))) { throw "Not a git repo: $repoDir" }
 
-jobs:
-  deploy:
-    runs-on: self-hosted
-    steps:
-      - name: Deploy via git, build, restart
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Stop"
+Set-Location $repoDir
 
-          $repoDir = "C:\code\Douyin-MediaHub"
-          $branch  = "main"
+Write-Host "Node version:"; node -v
+Write-Host "NPM version:";  npm -v
 
-          if (!(Test-Path $repoDir)) { throw "Repo dir not found: $repoDir" }
-          if (!(Test-Path (Join-Path $repoDir ".git"))) { throw "Not a git repo: $repoDir" }
+# --- Fix 1: Git safe.directory for SYSTEM runner ---
+git config --global --add safe.directory C:/code/Douyin-MediaHub
 
-          Set-Location $repoDir
+# --- Update code ---
+git fetch --all --prune
+git checkout $branch
+git reset --hard "origin/$branch"
+git clean -fd
 
-          Write-Host "Node version:"
-          node -v
-          Write-Host "NPM version:"
-          npm -v
+# --- Build ---
+npm ci
+npm run build
 
-          git fetch --all --prune
-          git checkout $branch
-          git reset --hard "origin/$branch"
-          git clean -fd
+# --- Restart service (robust) ---
+Write-Host "Stopping service $service ..."
+try {
+  Stop-Service -Name $service -Force -ErrorAction Stop
+} catch {
+  Write-Host "Stop-Service failed or timed out, will try to kill process on port $port"
+}
 
-          npm ci
-          npm run build
+# 如果服务还在，尝试按端口杀掉占用进程
+$maxWait = 20
+for ($i=0; $i -lt $maxWait; $i++) {
+  $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+  if (-not $conn) { break }
+  Start-Sleep -Seconds 1
+}
 
-          Restart-Service -Name "DouyinMediaHub" -Force
+$conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+if ($conn) {
+  $pid = $conn.OwningProcess
+  Write-Host "Killing PID $pid listening on port $port ..."
+  taskkill /PID $pid /F | Out-Null
+}
 
-          Write-Host "Deploy completed."
+Write-Host "Starting service $service ..."
+Start-Service -Name $service
+
+Write-Host "Deploy completed."
