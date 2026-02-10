@@ -105,7 +105,7 @@ export default function SettingsPage() {
     <main className="container">
       <div className="settingsHeader">
         <div>
-          <div className="settingsTitle">设置1</div>
+          <div className="settingsTitle">设置</div>
           <div className="settingsSubtitle">自动更新与更新记录</div>
         </div>
         <div className="settingsActions">
