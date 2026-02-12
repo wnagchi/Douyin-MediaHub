@@ -80,30 +80,12 @@ const Topbar = memo(function Topbar({
   const isMobileVariant = Boolean(mobileVariant);
   const navigate = useNavigate();
   const [qValue, setQValue] = React.useState(q);
-  const qTimerRef = React.useRef<number>();
-  const onQChangeRef = React.useRef(onQChange);
 
   const [tagValue, setTagValue] = React.useState(activeTag);
   const [tagModalOpen, setTagModalOpen] = React.useState(false);
   const [tagSearch, setTagSearch] = React.useState('');
   const [filterPanelOpen, setFilterPanelOpen] = React.useState(false);
   const [toolsPanelOpen, setToolsPanelOpen] = React.useState(false);
-
-  // 搜索历史记录
-  const [searchHistory, setSearchHistory] = React.useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('search_history');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [showSearchSuggestions, setShowSearchSuggestions] = React.useState(false);
-  const searchInputRef = React.useRef<HTMLInputElement>(null);
-
-  React.useEffect(() => {
-    onQChangeRef.current = onQChange;
-  }, [onQChange]);
 
   // 将 Topbar 实际高度写入 CSS 变量，供其它 sticky 元素避让（移动端尤其重要）
   React.useEffect(() => {
@@ -140,6 +122,11 @@ const Topbar = memo(function Topbar({
     }
   }, [isMobileVariant]);
 
+  const submitSearch = React.useCallback(() => {
+    const next = qValue.trim();
+    setQValue(next);
+    onQChange(next);
+  }, [onQChange, qValue]);
 
   const safeTagStats = React.useMemo(() => {
     return Array.isArray(tagStats) ? tagStats.filter((t) => t && t.tag) : [];
@@ -172,59 +159,6 @@ const Topbar = memo(function Topbar({
       textShadow: '0 1px 2px rgba(0,0,0,.55)',
     } as React.CSSProperties;
   }, []);
-
-  React.useEffect(() => {
-    if (qTimerRef.current) clearTimeout(qTimerRef.current);
-    qTimerRef.current = window.setTimeout(() => {
-      onQChangeRef.current(qValue);
-      const trimmed = qValue.trim();
-      if (!trimmed) return;
-      setSearchHistory((prev) => {
-        const next = [trimmed, ...prev.filter((h) => h !== trimmed)].slice(0, 10);
-        if (prev.length === next.length && prev.every((v, i) => v === next[i])) {
-          return prev;
-        }
-        return next;
-      });
-    }, 160);
-    return () => {
-      if (qTimerRef.current) clearTimeout(qTimerRef.current);
-    };
-  }, [qValue]);
-
-  React.useEffect(() => {
-    try {
-      localStorage.setItem('search_history', JSON.stringify(searchHistory));
-    } catch {}
-  }, [searchHistory]);
-
-  // 点击外部关闭搜索建议
-  React.useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (searchInputRef.current && !searchInputRef.current.contains(e.target as Node)) {
-        setShowSearchSuggestions(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // 搜索建议列表（历史记录 + 作者建议）
-  const searchSuggestions = React.useMemo(() => {
-    const suggestions: Array<{ type: 'history' | 'author' | 'tag'; value: string; label: string }> = [];
-
-    // 添加历史记录
-    searchHistory.forEach(h => {
-      if (h.toLowerCase().includes(qValue.toLowerCase()) || !qValue) {
-        suggestions.push({ type: 'history', value: h, label: h });
-      }
-    });
-
-    // 添加作者建议（从当前目录列表推断）
-    // 这里简化处理，实际可以从 API 获取作者列表
-
-    return suggestions.slice(0, 8);
-  }, [qValue, searchHistory]);
 
   const activeFilterCount = React.useMemo(() => {
     let count = 0;
@@ -279,15 +213,16 @@ const Topbar = memo(function Topbar({
           <div className="primaryRow">
             <div className="search primarySearch" style={{ position: 'relative' }}>
               <input
-                ref={searchInputRef}
                 id="q"
                 type="search"
                 placeholder={viewMode === 'publisher' ? '搜索作者（仅匹配作者名）…' : '搜索：作者 / 主题 / 关键词…'}
                 autoComplete="off"
                 value={qValue}
                 onChange={(e) => setQValue(e.target.value)}
-                onFocus={() => setShowSearchSuggestions(true)}
               />
+              <button id="submitQ" className="btn compact" title="搜索" onClick={submitSearch}>
+                搜索
+              </button>
               <button
                 id="clearQ"
                 className="iconBtn"
@@ -299,30 +234,6 @@ const Topbar = memo(function Topbar({
               >
                 ×
               </button>
-
-              {/* 搜索建议下拉框 - 手机端优化 */}
-              {showSearchSuggestions && searchSuggestions.length > 0 && (
-                <div className="searchSuggestions">
-                  {searchSuggestions.map((suggestion, idx) => (
-                    <button
-                      key={`${suggestion.type}-${idx}`}
-                      className="searchSuggestionItem"
-                      onClick={() => {
-                        setQValue(suggestion.value);
-                        onQChange(suggestion.value);
-                        setShowSearchSuggestions(false);
-                      }}
-                    >
-                      <span className="searchSuggestionIcon">
-                        {suggestion.type === 'history' && '🕐'}
-                        {suggestion.type === 'author' && '👤'}
-                        {suggestion.type === 'tag' && '#'}
-                      </span>
-                      <span className="searchSuggestionLabel">{suggestion.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
             <div className="primaryActions">
               <button

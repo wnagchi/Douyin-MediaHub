@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { CacheManager, stableStringify } from './CacheManager';
 
 describe('CacheManager.generateCacheKey', () => {

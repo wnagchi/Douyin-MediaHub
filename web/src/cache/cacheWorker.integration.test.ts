@@ -5,7 +5,6 @@
  * 这些测试在真实的浏览器环境中运行，验证完整的缓存工作流
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { WorkerMessage, WorkerResponse } from './cacheWorker';
 import {
   DB_NAME,

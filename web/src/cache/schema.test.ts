@@ -2,7 +2,6 @@
  * IndexedDB 架构单元测试
  */
 
-import { describe, it, expect } from 'vitest';
 import {
   DB_NAME,
   DB_VERSION,

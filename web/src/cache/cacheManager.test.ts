@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CacheManager } from './CacheManager';
 
 describe('CacheManager (in-memory fallback)', () => {

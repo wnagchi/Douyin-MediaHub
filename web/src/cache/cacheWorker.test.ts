@@ -5,7 +5,6 @@
  * 注意：由于 Web Worker 在测试环境中的限制，这里主要测试类型和接口定义
  */
 
-import { describe, it, expect } from 'vitest';
 import type { WorkerMessage, WorkerResponse, WorkerMessageType } from './cacheWorker';
 import {
   DB_NAME,
