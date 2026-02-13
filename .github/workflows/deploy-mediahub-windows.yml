@@ -27,6 +27,19 @@ jobs:
 
           Set-Location $repoDir
 
+          function Get-DepFingerprint {
+            param(
+              [string]$TargetRepoDir
+            )
+            $pkgPath = Join-Path $TargetRepoDir "package.json"
+            $lockPath = Join-Path $TargetRepoDir "package-lock.json"
+            $pkgHash = if (Test-Path $pkgPath) { (Get-FileHash $pkgPath -Algorithm SHA256).Hash } else { "" }
+            $lockHash = if (Test-Path $lockPath) { (Get-FileHash $lockPath -Algorithm SHA256).Hash } else { "" }
+            return "$pkgHash|$lockHash"
+          }
+
+          $depBefore = Get-DepFingerprint -TargetRepoDir $repoDir
+
           Write-Host "Node version:"; node -v
           Write-Host "NPM version:";  npm -v
 
@@ -38,7 +51,18 @@ jobs:
           git reset --hard "origin/$branch"
           git clean -fd
 
-          npm ci
+          $depAfter = Get-DepFingerprint -TargetRepoDir $repoDir
+          $needInstall = $false
+          if ($depBefore -ne $depAfter) { $needInstall = $true }
+          if (!(Test-Path (Join-Path $repoDir "node_modules"))) { $needInstall = $true }
+
+          if ($needInstall) {
+            Write-Host "Dependencies changed (or missing), running npm ci ..."
+            npm ci
+          } else {
+            Write-Host "Dependencies unchanged, skip npm ci."
+          }
+
           npm run build
 
           Write-Host "Stopping service $service ..."
