@@ -8,6 +8,7 @@ const ROUTES = {
   home: '/',
   feed: '/feed',
   settings: '/settings',
+  unclassified: '/unclassified',
 } as const;
 
 export default function RouterApp() {
@@ -17,6 +18,7 @@ export default function RouterApp() {
     home: true,
     feed: false,
     settings: false,
+    unclassified: false,
   });
 
   React.useEffect(() => {
@@ -26,18 +28,27 @@ export default function RouterApp() {
     if (pathname === ROUTES.settings && !mounted.settings) {
       setMounted((prev) => ({ ...prev, settings: true }));
     }
-  }, [pathname, mounted.feed, mounted.settings]);
+    if (pathname === ROUTES.unclassified && !mounted.unclassified) {
+      setMounted((prev) => ({ ...prev, unclassified: true }));
+    }
+  }, [pathname, mounted.feed, mounted.settings, mounted.unclassified]);
 
   const isHome = pathname === ROUTES.home;
   const isFeed = pathname === ROUTES.feed;
   const isSettings = pathname === ROUTES.settings;
-  const isKnown = isHome || isFeed || isSettings;
+  const isUnclassified = pathname === ROUTES.unclassified;
+  const isKnown = isHome || isFeed || isSettings || isUnclassified;
 
   return (
     <>
       <div className={`routeCache ${!isHome ? 'routeHidden' : ''}`} aria-hidden={!isHome}>
         <App />
       </div>
+      {mounted.unclassified && (
+        <div className={`routeCache ${!isUnclassified ? 'routeHidden' : ''}`} aria-hidden={!isUnclassified}>
+          <App unclassifiedOnly />
+        </div>
+      )}
       {mounted.feed && (
         <div className={`routeCache ${!isFeed ? 'routeHidden' : ''}`} aria-hidden={!isFeed}>
           <FeedPage active={isFeed} />

@@ -46,7 +46,7 @@ export default function SetupCard({ setup, onSave }: SetupCardProps) {
 
   const hint = setup.fromEnv
     ? '当前 mediaDir 由环境变量 MEDIA_DIR 指定（页面内无法持久化保存）。'
-    : '保存后会写入项目根目录 config.json，后续启动自动生效。';
+    : '保存后会持久化到数据库并同步写入 config.json，后续启动自动生效。';
 
   const currentLines = inputValue.split(/\r?\n/).filter(Boolean).length;
   const defaultVal = (setup.defaultMediaDirs || []).join('\n');

@@ -135,13 +135,13 @@ function createScanService({ rootDir, indexer }) {
     }
   }
 
-  async function runScan({ trigger = "manual", force = false, onProgress } = {}) {
+  async function runScan({ trigger = "manual", force = false, forceScan = null, rebuildDerived = null, onProgress } = {}) {
     const startedAt = nowMs();
     let result = null;
     let error = null;
 
     try {
-      result = await indexer.updateCheck({ force, onProgress, typeStats: { createTypeStats, bumpType } });
+      result = await indexer.updateCheck({ force, forceScan, rebuildDerived, onProgress, typeStats: { createTypeStats, bumpType } });
     } catch (e) {
       error = String(e?.message || e);
       result = { ok: false, error };
@@ -168,6 +168,7 @@ function createScanService({ rootDir, indexer }) {
         deleted: result?.deleted ?? 0,
         durationMs: result?.durationMs ?? null,
         typeStats: result?.typeStats ?? null,
+        metrics: result?.metrics ?? null,
       },
     };
 

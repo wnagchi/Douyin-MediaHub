@@ -67,8 +67,23 @@ npm run start
 - `MEDIA_DIRS`: 多个目录，用 `;` 分隔（绝对路径）
 - `PORT`: 服务端端口（默认 3000）
 - `INDEX_DB_PATH`: SQLite 索引库路径（默认 `data/index.sqlite`）
+- `INDEX_DIR_MTIME_OPT`: 启用目录 mtime 优化（`1` 开启，默认 `0`）
+- `INDEX_OPT_PHASE1`: 启用阶段1优化（事务+索引+orphan一次，默认 `1`，设为 `0` 回滚）
+- `INDEX_OPT_PHASE2`: 启用阶段2优化（预加载Map，默认 `1`，设为 `0` 回滚）
+- `INDEX_OPT_PHASE3`: 启用阶段3优化（队列背压，默认 `1`，设为 `0` 回滚）
 - `LAN_IP` / `LAN_HOST`: 强制指定启动日志输出的局域网访问 IP（可选）
 - `HOOK_TOKEN`: 钩子 API 鉴权 token（可选）
+- `THUMB_WIDTH`: 图片缩略图宽度（默认 360）
+- `THUMB_FORMAT`: 图片缩略图格式（webp/jpg/png，默认 webp）
+- `THUMB_QUALITY`: 图片缩略图质量（1-100，默认 75）
+- `THUMB_CONCURRENCY`: 图片缩略图并发数（默认 3）
+- `THUMB_MAX_QUEUE`: 图片缩略图队列上限（默认 5000）
+- `VTHUMB_TIME_SEC`: 视频缩略图提取时间点（秒，默认 0.5）
+- `VTHUMB_WIDTH`: 视频缩略图宽度（默认 360）
+- `VTHUMB_FORMAT`: 视频缩略图格式（jpg/png，默认 jpg）
+- `VTHUMB_QUALITY`: 视频缩略图质量（1-100，默认 85）
+- `VTHUMB_CONCURRENCY`: 视频缩略图并发数（默认 2）
+- `VTHUMB_MAX_QUEUE`: 视频缩略图队列上限（默认 3000）
 
 ## 内网访问（多端）
 
@@ -103,7 +118,10 @@ npm run start
 - `POST /api/reindex?force=0|1`
   - 触发一次索引增量更新检查
   - `force=0`：仅对变更目录做增量更新（默认）
-  - `force=1`：强制扫描（适合外部脚本想确保完全刷新）
+  - `force=1`：强制扫描并重建派生字段（向后兼容，等同于 `forceScan=1&rebuildDerived=1`）
+  - `forceScan=1`：强制扫描所有目录（忽略 mtime 检查）
+  - `rebuildDerived=1`：重建所有 types/tags 派生字段（适用于新增字段迁移）
+  - `stream=1`：使用 SSE 流式返回扫描进度
   - 可选鉴权：设置 `HOOK_TOKEN` 后，需提供 `?token=xxx` 或请求头 `x-hook-token: xxx`
 
 

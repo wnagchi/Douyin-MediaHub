@@ -4,7 +4,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { DatabaseSync } = require("node:sqlite");
 
-const { parseMediaFilename } = require("./media");
+const { parseMediaFilename, extToKind } = require("./media");
 const { extractHashtags, normalizeTagInput, stripHashtags } = require("./tags");
 const { dirExists } = require("./utils/fs");
 const { createThumbGenerator } = require("./thumbs");
@@ -61,12 +61,57 @@ function nowMs() {
   return Date.now();
 }
 
+function formatMtimeToTimeText(mtimeMs) {
+  // 将 mtime 转换为类似 "2025-12-07 16.29.19" 的格式
+  const d = new Date(mtimeMs);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd} ${hh}.${min}.${ss}`;
+}
+
+function buildFallbackRecord(filename, ext, mtimeMs, dirId) {
+  // 为非标准命名文件构建fallback记录
+  const kind = extToKind(ext);
+  if (kind === 'file') return null; // 只处理图片和视频
+  
+  const timeText = formatMtimeToTimeText(mtimeMs);
+  const iso = new Date(mtimeMs).toISOString();
+  const timestampMs = mtimeMs;
+  
+  // 提取文件名作为主题（去掉扩展名）
+  const baseName = path.basename(filename, ext);
+  
+  return {
+    filename,
+    ext,
+    kind,
+    timeText,
+    iso,
+    timestampMs,
+    typeText: '未分类',
+    declaredTypes: [],
+    author: '',
+    theme: baseName || '未命名',
+    seq: null,
+    isUnclassified: true,
+  };
+}
+
 function createIndexer({ rootDir, mediaStore }) {
   const dataDir = path.join(rootDir, "data");
   const dbPath = process.env.INDEX_DB_PATH
     ? path.resolve(process.env.INDEX_DB_PATH)
     : path.join(dataDir, "index.sqlite");
   const useDirMtimeOptimization = String(process.env.INDEX_DIR_MTIME_OPT || "0").trim() === "1";
+  
+  // 阶段开关：允许通过环境变量控制优化启用，支持回滚
+  const enablePhase1 = String(process.env.INDEX_OPT_PHASE1 || "1").trim() === "1"; // 事务 + 索引 + orphan 一次
+  const enablePhase2 = String(process.env.INDEX_OPT_PHASE2 || "1").trim() === "1"; // 预加载 Map
+  const enablePhase3 = String(process.env.INDEX_OPT_PHASE3 || "1").trim() === "1"; // 队列背压
 
   /** @type {DatabaseSync | null} */
   let db = null;
@@ -138,6 +183,7 @@ CREATE INDEX IF NOT EXISTS idx_items_theme ON media_items(theme);
 CREATE INDEX IF NOT EXISTS idx_items_timetext ON media_items(timeText);
 CREATE INDEX IF NOT EXISTS idx_types_type ON media_item_types(type);
 CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
+CREATE INDEX IF NOT EXISTS idx_items_dir_seenrun ON media_items(dirId, seenRun);
     `);
 
     // 轻量迁移：老库可能没有 createdAtMs/updatedAtMs（SQLite 允许 ADD COLUMN）
@@ -147,6 +193,9 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     try {
       db.exec(`ALTER TABLE media_items ADD COLUMN updatedAtMs INTEGER`);
     } catch {}
+    try {
+      db.exec(`ALTER TABLE media_items ADD COLUMN isUnclassified INTEGER DEFAULT 0`);
+    } catch {}
     // 迁移后再建索引（避免老库缺列时 CREATE INDEX 直接失败）
     try {
       db.exec(`CREATE INDEX IF NOT EXISTS idx_items_created ON media_items(createdAtMs DESC)`);
@@ -154,27 +203,42 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     try {
       db.exec(`CREATE INDEX IF NOT EXISTS idx_items_updated ON media_items(updatedAtMs DESC)`);
     } catch {}
+    try {
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_items_unclassified ON media_items(isUnclassified)`);
+    } catch {}
     // 老数据无法恢复“首次入库时间”，这里用当前时间作为基线，后续新增会有真实 createdAtMs
     const baseline = nowMs();
     try {
       db.prepare(
         `UPDATE media_items
          SET createdAtMs = COALESCE(createdAtMs, :b),
-             updatedAtMs = COALESCE(updatedAtMs, :b)
-         WHERE createdAtMs IS NULL OR updatedAtMs IS NULL`
+             updatedAtMs = COALESCE(updatedAtMs, :b),
+             isUnclassified = COALESCE(isUnclassified, 0)
+         WHERE createdAtMs IS NULL OR updatedAtMs IS NULL OR isUnclassified IS NULL`
       ).run({ b: baseline });
     } catch {}
 
     return db;
   }
 
-  async function updateCheck({ force = false, onProgress = null, typeStats = null } = {}) {
+  async function updateCheck({ 
+    force = false, 
+    forceScan = null, 
+    rebuildDerived = null, 
+    onProgress = null, 
+    typeStats = null 
+  } = {}) {
     if (running) {
       return { ok: false, running: true };
     }
     running = (async () => {
       const start = nowMs();
       initDb();
+
+      // 阶段4优化：拆分 force 语义
+      // force=true 向后兼容映射到两者都开启
+      const shouldForceScan = forceScan !== null ? forceScan : force;
+      const shouldRebuildDerived = rebuildDerived !== null ? rebuildDerived : force;
 
       const dirs = await mediaStore.listExistingDirs();
       if (!dirs.length) {
@@ -223,9 +287,9 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
       const upsertItem = db.prepare(
         `INSERT INTO media_items(
             dirId, filename, ext, kind, timeText, iso, timestampMs, author, theme, typeText, seq,
-            createdAtMs, updatedAtMs,
+            createdAtMs, updatedAtMs, isUnclassified,
             mtimeMs, size, seenRun
-          ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(dirId, filename) DO UPDATE SET
             ext=excluded.ext,
             kind=excluded.kind,
@@ -238,11 +302,13 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
             seq=excluded.seq,
             createdAtMs=COALESCE(media_items.createdAtMs, excluded.createdAtMs),
             updatedAtMs=excluded.updatedAtMs,
+            isUnclassified=excluded.isUnclassified,
             mtimeMs=excluded.mtimeMs,
             size=excluded.size,
             seenRun=excluded.seenRun`
       );
       const getItemStat = db.prepare(`SELECT mtimeMs, size FROM media_items WHERE dirId=? AND filename=?`);
+      const getAllItemsInDir = db.prepare(`SELECT filename, mtimeMs, size FROM media_items WHERE dirId=?`);
       const markSeen = db.prepare(`UPDATE media_items SET seenRun=? WHERE dirId=? AND filename=?`);
       const deleteUnseenForDir = db.prepare(`DELETE FROM media_items WHERE dirId=? AND (seenRun IS NULL OR seenRun<>?)`);
       const deleteTypesForFile = db.prepare(`DELETE FROM media_item_types WHERE dirId=? AND filename=?`);
@@ -256,6 +322,11 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
       let updated = 0;
       let deleted = 0;
       let scannedFiles = 0;
+      // 基线统计：SQL 写入次数与缩略图队列
+      let sqlWrites = 0;
+      let sqlReads = 0;
+      let thumbsQueued = 0;
+      let vthumbsQueued = 0;
       const stats = typeStats ? {
         added: typeStats.createTypeStats(),
         updated: typeStats.createTypeStats(),
@@ -281,7 +352,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
         const dirMtimeMs = st?.mtimeMs ?? null;
         // 递归扫描时：目录 mtime 无法可靠反映子目录/文件变化（尤其是深层新增/删除），
         // 因此默认禁用该优化，保证能发现子文件夹里的变更。
-        const shouldScan = force || !useDirMtimeOptimization || !prev || prev.dirMtimeMs !== dirMtimeMs;
+        const shouldScan = shouldForceScan || !useDirMtimeOptimization || !prev || prev.dirMtimeMs !== dirMtimeMs;
         if (!shouldScan) {
           skippedDirs++;
           continue;
@@ -303,8 +374,29 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
           });
         }
 
-        // scan this dir (recursive)
-        const files = await listFilesRecursive(dir.path);
+        // 阶段1优化：按目录事务包裹（可通过 INDEX_OPT_PHASE1=0 关闭）
+        const useTransaction = enablePhase1;
+        try {
+          if (useTransaction) {
+            db.exec('BEGIN');
+          }
+
+          // 阶段2优化：预加载目录内所有文件旧状态到内存 Map（可通过 INDEX_OPT_PHASE2=0 关闭）
+          const dirItemsCache = new Map();
+          if (enablePhase2) {
+            try {
+              const rows = getAllItemsInDir.all(dir.id);
+              sqlReads += 1; // 整目录一次查询
+              for (const row of rows) {
+                dirItemsCache.set(row.filename, { mtimeMs: row.mtimeMs, size: row.size });
+              }
+            } catch (e) {
+              console.warn(`[indexer] Failed to preload items for dir ${dir.id}:`, String(e?.message || e));
+            }
+          }
+
+          // scan this dir (recursive)
+          const files = await listFilesRecursive(dir.path);
 
         // Mark seenRun for parsed files; leave others untouched
         for (const relPath of files) {
@@ -325,8 +417,28 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
           }
 
           const baseName = path.basename(relPath);
-          const p = parseMediaFilename(baseName);
-          if (!p) continue;
+          let p = parseMediaFilename(baseName);
+          
+          // Fallback for non-standard naming (images/videos only)
+          if (!p) {
+            const ext = path.extname(baseName);
+            const kind = extToKind(ext);
+            if (kind === 'video' || kind === 'image') {
+              // Get file stat for fallback
+              const filePath = path.join(dir.path, relPath);
+              let fst;
+              try {
+                fst = await fsp.stat(filePath);
+              } catch {
+                continue;
+              }
+              // Build fallback record
+              p = buildFallbackRecord(relPath, ext, fst.mtimeMs, dir.id);
+            } else {
+              continue; // Skip non-media files
+            }
+          }
+          
           const filePath = path.join(dir.path, relPath);
           let fst;
           try {
@@ -335,33 +447,45 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
             continue;
           }
 
-          const prevStat = getItemStat.get(dir.id, relPath);
+          // 阶段2优化：从内存 Map 查找旧状态，避免逐文件 SQL 查询（可回退到逐条查询）
+          let prevStat = null;
+          if (enablePhase2 && dirItemsCache.size > 0) {
+            prevStat = dirItemsCache.get(relPath) || null;
+          } else {
+            // 回退：逐文件查询
+            prevStat = getItemStat.get(dir.id, relPath);
+            sqlReads++;
+          }
           const hasPrev = Boolean(prevStat);
           const changed = !hasPrev || prevStat.mtimeMs !== fst.mtimeMs || prevStat.size !== fst.size;
 
           // Even if unchanged, update seenRun so delete step won't remove it.
-          // NOTE: force=1 的意义除了"强制扫描目录"，还用于回填新增的派生字段（如 tags）。
-          // 因此：文件未变化但 force=true 时，也要重建 types/tags（但不要生成缩略图，避免全量耗时）。
+          // 阶段4优化：拆分语义，rebuildDerived 控制是否重建 types/tags
           if (!changed) {
             markSeen.run(scanRun, dir.id, relPath);
-            if (!force) continue;
+            sqlWrites++;
+            if (!shouldRebuildDerived) continue;
 
             // refresh types (force backfill)
             deleteTypesForFile.run(dir.id, relPath);
+            sqlWrites++;
             for (const t of p.declaredTypes || []) {
               const tt = normalizeType(t);
               if (!tt) continue;
               insertType.run(dir.id, relPath, tt);
+              sqlWrites++;
             }
 
             // refresh tags (force backfill)
             deleteTagsForFile.run(dir.id, relPath);
+            sqlWrites++;
             const themeText = String(p.theme || "");
             const tags = extractHashtags(themeText, { max: 80 });
             for (const t of tags) {
               const nt = normalizeTagInput(t);
               if (!nt) continue;
               insertTag.run(dir.id, relPath, nt);
+              sqlWrites++;
             }
             continue;
           }
@@ -389,31 +513,38 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
             p.seq,
             scanRun,
             scanRun,
+            p.isUnclassified ? 1 : 0,
             fst.mtimeMs,
             fst.size,
             scanRun
           );
+          sqlWrites++;
 
           // refresh types
           deleteTypesForFile.run(dir.id, relPath);
+          sqlWrites++;
           for (const t of p.declaredTypes || []) {
             const tt = normalizeType(t);
             if (!tt) continue;
             insertType.run(dir.id, relPath, tt);
+            sqlWrites++;
           }
 
           // refresh tags (from theme/描述中的 #标签)
           deleteTagsForFile.run(dir.id, relPath);
+          sqlWrites++;
           const themeText = String(p.theme || "");
           const tags = extractHashtags(themeText, { max: 80 });
           for (const t of tags) {
             const nt = normalizeTagInput(t);
             if (!nt) continue;
             insertTag.run(dir.id, relPath, nt);
+            sqlWrites++;
           }
 
           // Generate thumbnail for images
           if (p.kind === "image") {
+            thumbsQueued++;
             thumbGenerator.generateThumb({ absSourcePath: filePath, dirId: dir.id, filename: relPath }).catch((e) => {
               // eslint-disable-next-line no-console
               console.warn(`[thumbs] Failed to generate thumb for ${dir.id}/${relPath}: ${String(e?.message || e)}`);
@@ -422,6 +553,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
 
           // Generate thumbnail for videos
           if (p.kind === "video") {
+            vthumbsQueued++;
             videoThumbGenerator.generateThumb({ absVideoPath: filePath, dirId: dir.id, filename: relPath }).catch((e) => {
               // eslint-disable-next-line no-console
               console.warn(`[vthumbs] Failed to generate thumb for ${dir.id}/${relPath}: ${String(e?.message || e)}`);
@@ -441,27 +573,54 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
           }
         }
         deleteUnseenForDir.run(dir.id, scanRun);
+        sqlWrites++;
         const removed = before.get().c || 0;
         if (removed) deleted += removed;
-        // also cleanup orphaned types
-        db.exec(
-          `DELETE FROM media_item_types
-           WHERE NOT EXISTS (
-             SELECT 1 FROM media_items mi
-             WHERE mi.dirId = media_item_types.dirId AND mi.filename = media_item_types.filename
-           )`
-        );
-        // also cleanup orphaned tags
-        db.exec(
-          `DELETE FROM media_item_tags
-           WHERE NOT EXISTS (
-             SELECT 1 FROM media_items mi
-             WHERE mi.dirId = media_item_tags.dirId AND mi.filename = media_item_tags.filename
-           )`
-        );
 
         upsertDir.run(dir.id, dir.path, dirMtimeMs, nowMs());
+        sqlWrites++;
+
+        // 提交目录事务（如启用）
+        if (useTransaction) {
+          db.exec('COMMIT');
+        }
+      } catch (e) {
+        // 目录扫描异常时回滚（如启用）
+        if (useTransaction) {
+          try {
+            db.exec('ROLLBACK');
+          } catch {}
+        }
+        throw e;
       }
+      }
+
+      // 阶段1优化：将 orphan 清理从"每目录一次"改为"整轮扫描一次"（可通过 INDEX_OPT_PHASE1=0 关闭）
+      // 在所有目录扫描完成后统一执行一次
+      if (enablePhase1) {
+        try {
+          db.exec(
+            `DELETE FROM media_item_types
+             WHERE NOT EXISTS (
+               SELECT 1 FROM media_items mi
+               WHERE mi.dirId = media_item_types.dirId AND mi.filename = media_item_types.filename
+             )`
+          );
+          db.exec(
+            `DELETE FROM media_item_tags
+             WHERE NOT EXISTS (
+               SELECT 1 FROM media_items mi
+               WHERE mi.dirId = media_item_tags.dirId AND mi.filename = media_item_tags.filename
+             )`
+          );
+        } catch (e) {
+          console.warn('[indexer] Orphan cleanup failed:', String(e?.message || e));
+        }
+      }
+
+      // 阶段3优化：收集缩略图队列统计
+      const thumbStats = thumbGenerator.getQueueStats();
+      const vthumbStats = videoThumbGenerator.getQueueStats();
 
       return {
         ok: true,
@@ -473,6 +632,18 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
         deleted,
         durationMs: nowMs() - start,
         typeStats: stats,
+        // 基线统计指标
+        metrics: {
+          scannedFiles,
+          sqlReads,
+          sqlWrites,
+          thumbsQueued,
+          vthumbsQueued,
+          thumbQueueLength: thumbStats.queueLength,
+          thumbDropped: thumbStats.droppedCount,
+          vthumbQueueLength: vthumbStats.queueLength,
+          vthumbDropped: vthumbStats.droppedCount,
+        },
       };
     })();
 
@@ -483,7 +654,17 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     }
   }
 
-  function queryResources({ page = 1, pageSize = 30, type = "", dirId = "", q = "", sort = "publish", tag = "", author } = {}) {
+  function queryResources({
+    page = 1,
+    pageSize = 30,
+    type = "",
+    dirId = "",
+    q = "",
+    sort = "publish",
+    tag = "",
+    unclassified = "",
+    author,
+  } = {}) {
     initDb();
     const safePage = Number.isFinite(page) && page > 0 ? page : 1;
     const safeSize = Math.min(200, Math.max(1, Number.isFinite(pageSize) && pageSize > 0 ? pageSize : 30));
@@ -531,6 +712,12 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
       params.tag = tagFilter;
     }
 
+    if (unclassified === "1") {
+      where.push(`COALESCE(mi.isUnclassified, 0) = 1`);
+    } else if (unclassified === "0") {
+      where.push(`COALESCE(mi.isUnclassified, 0) = 0`);
+    }
+
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
     const totalGroupsRow = db
@@ -569,6 +756,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
            mi.timeText AS timeText,
            mi.author AS author,
            mi.theme AS theme,
+           MAX(COALESCE(mi.isUnclassified, 0)) AS isUnclassified,
            MAX(COALESCE(mi.timestampMs, 0)) AS timestampMs,
            MAX(COALESCE(mi.createdAtMs, 0)) AS createdAtMs,
            GROUP_CONCAT(DISTINCT COALESCE(mi.typeText,'')) AS typeTextList,
@@ -584,7 +772,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
       .all({ ...params, limit: safeSize, offset });
 
     const itemStmt = db.prepare(
-      `SELECT filename, dirId, ext, kind, seq, typeText
+      `SELECT filename, dirId, ext, kind, seq, typeText, isUnclassified
        FROM media_items
        WHERE timeText=? AND author=? AND theme=? ${dirFilter ? "AND dirId=?" : ""}
        ORDER BY COALESCE(seq, 1000000000) ASC, filename ASC`
@@ -594,6 +782,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
       const timeText = r.timeText || "";
       const author = r.author || "";
       const theme = r.theme || "";
+      const isUnclassified = Boolean(r.isUnclassified);
       const key = `${timeText}|${author}|${theme}`;
       const id = sha1Hex(key);
 
@@ -629,6 +818,7 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
         groupType,
         types,
         tags: uniqTags,
+        isUnclassified,
         items: items.map((it) => {
           const item = {
             filename: it.filename,
@@ -962,6 +1152,37 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     };
   }
 
+  function getConfiguredMediaDirs() {
+    initDb();
+    try {
+      const row = db.prepare(`SELECT value FROM meta WHERE key = ?`).get('mediaDirs');
+      if (!row || !row.value) return null;
+      const parsed = JSON.parse(row.value);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch (e) {
+      console.warn(`[indexer] Failed to read mediaDirs from SQL: ${String(e?.message || e)}`);
+      return null;
+    }
+  }
+
+  function setConfiguredMediaDirs(paths) {
+    initDb();
+    try {
+      if (!Array.isArray(paths)) {
+        throw new Error('paths must be an array');
+      }
+      const value = JSON.stringify(paths);
+      db.prepare(
+        `INSERT INTO meta(key, value) VALUES(?, ?)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+      ).run('mediaDirs', value);
+      return { ok: true };
+    } catch (e) {
+      console.error(`[indexer] Failed to write mediaDirs to SQL: ${String(e?.message || e)}`);
+      return { ok: false, error: String(e?.message || e) };
+    }
+  }
+
   return {
     get dbPath() {
       return dbPath;
@@ -972,6 +1193,8 @@ CREATE INDEX IF NOT EXISTS idx_tags_tag ON media_item_tags(tag);
     queryAuthors,
     queryTags,
     queryStats,
+    getConfiguredMediaDirs,
+    setConfiguredMediaDirs,
   };
 }
 

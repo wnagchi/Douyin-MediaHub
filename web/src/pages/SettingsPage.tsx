@@ -6,6 +6,8 @@ import {
   saveScanSchedule,
   fetchScanLogs,
   fetchResourceStats,
+  fetchConfig,
+  saveConfigMediaDirs,
   type ScanSchedule,
   type ScanLogItem,
   type ResourceTypeStat,
@@ -35,6 +37,13 @@ export default function SettingsPage() {
     }
   });
 
+  // 目录配置状态
+  const [mediaDirs, setMediaDirs] = React.useState<string[]>([]);
+  const [mediaDirsInput, setMediaDirsInput] = React.useState('');
+  const [mediaDirsLoading, setMediaDirsLoading] = React.useState(false);
+  const [mediaDirsSaving, setMediaDirsSaving] = React.useState(false);
+  const [fromEnv, setFromEnv] = React.useState(false);
+
   React.useEffect(() => {
     setScheduleLoading(true);
     fetchScanSchedule()
@@ -47,6 +56,23 @@ export default function SettingsPage() {
         }
       })
       .finally(() => setScheduleLoading(false));
+  }, []);
+
+  // 加载目录配置
+  React.useEffect(() => {
+    setMediaDirsLoading(true);
+    fetchConfig()
+      .then((r) => {
+        if (r.ok) {
+          const dirs = r.mediaDirs || [];
+          setMediaDirs(dirs);
+          setMediaDirsInput(dirs.join('\n'));
+          setFromEnv(Boolean(r.fromEnv));
+        } else {
+          message.error(r.error || '加载目录配置失败');
+        }
+      })
+      .finally(() => setMediaDirsLoading(false));
   }, []);
 
   const loadStats = React.useCallback(() => {
@@ -101,6 +127,35 @@ export default function SettingsPage() {
     loadLogs();
   }, [loadLogs]);
 
+  const handleSaveMediaDirs = async () => {
+    const text = mediaDirsInput.trim();
+    const lines = text
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!lines.length) {
+      message.error('请输入至少一个绝对路径（每行一个）');
+      return;
+    }
+    setMediaDirsSaving(true);
+    try {
+      const r = await saveConfigMediaDirs(lines);
+      if (!r.ok) {
+        message.error(r.error || '保存失败');
+        return;
+      }
+      setMediaDirs(lines);
+      message.success('目录配置已保存并持久化到数据库');
+      if (r.persistedToSql) {
+        message.info('配置已同步到 SQL 数据库，重启后自动生效', 3);
+      }
+    } catch (err) {
+      message.error(String(err instanceof Error ? err.message : err));
+    } finally {
+      setMediaDirsSaving(false);
+    }
+  };
+
   return (
     <main className="container">
       <div className="settingsHeader">
@@ -114,6 +169,70 @@ export default function SettingsPage() {
       </div>
 
       <div className="settingsGrid">
+        <section className="card settingsCard">
+          <div className="cardInner">
+            <div className="settingsCardHeader">
+              <div className="settingsCardTitle">扫描目录管理</div>
+              <button className="btn ghost compact" onClick={() => {
+                setMediaDirsLoading(true);
+                fetchConfig()
+                  .then((r) => {
+                    if (r.ok) {
+                      const dirs = r.mediaDirs || [];
+                      setMediaDirs(dirs);
+                      setMediaDirsInput(dirs.join('\n'));
+                      setFromEnv(Boolean(r.fromEnv));
+                      message.success('已刷新目录配置');
+                    } else {
+                      message.error(r.error || '加载目录配置失败');
+                    }
+                  })
+                  .finally(() => setMediaDirsLoading(false));
+              }} disabled={mediaDirsLoading}>
+                刷新
+              </button>
+            </div>
+            {mediaDirsLoading && <div className="settingsMuted">加载中…</div>}
+            {!mediaDirsLoading && (
+              <div className="settingsForm">
+                <div className="settingsMuted" style={{ marginBottom: '8px' }}>
+                  {fromEnv
+                    ? '当前目录由环境变量 MEDIA_DIR(S) 指定，页面修改不会持久化'
+                    : '目录配置会持久化到数据库并同步写入 config.json'}
+                </div>
+                <textarea
+                  className="setupInput"
+                  rows={6}
+                  placeholder="每行一个绝对路径，例如：&#10;D:\code\ai\media&#10;D:\another_media"
+                  value={mediaDirsInput}
+                  onChange={(e) => setMediaDirsInput(e.target.value)}
+                  disabled={fromEnv}
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    fontSize: '13px',
+                    fontFamily: 'monospace',
+                    backgroundColor: fromEnv ? 'rgba(255,255,255,0.05)' : undefined,
+                    cursor: fromEnv ? 'not-allowed' : undefined,
+                  }}
+                />
+                <div className="settingsButtons" style={{ marginTop: '12px' }}>
+                  <button
+                    className="btn"
+                    onClick={handleSaveMediaDirs}
+                    disabled={mediaDirsSaving || fromEnv}
+                  >
+                    {mediaDirsSaving ? '保存中…' : '保存目录配置'}
+                  </button>
+                </div>
+                <div className="settingsMeta" style={{ marginTop: '8px' }}>
+                  当前配置: {mediaDirs.length} 个目录
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
         <section className="card settingsCard">
           <div className="cardInner">
             <div className="settingsCardHeader">

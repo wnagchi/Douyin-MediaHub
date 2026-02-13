@@ -63,6 +63,7 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir, scanService })
         const dirFilter = (u.searchParams.get("dirId") || "").trim();
         const qFilter = (u.searchParams.get("q") || "").trim();
         const tagFilter = (u.searchParams.get("tag") || "").trim();
+        const unclassifiedFilter = (u.searchParams.get("unclassified") || "").trim();
         // author：当 query string 中显式出现 author= 时，即使为空字符串也视为过滤条件（用于“未知发布者”）
         const hasAuthorParam = u.searchParams.has("author");
         const authorFilter = hasAuthorParam ? String(u.searchParams.get("author") || "") : "";
@@ -83,6 +84,7 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir, scanService })
           dirId: dirFilter,
           q: qFilter,
           tag: tagFilter,
+          unclassified: unclassifiedFilter === "1" ? "1" : unclassifiedFilter === "0" ? "0" : "",
           author: hasAuthorParam ? authorFilter : undefined,
           sort,
         });
@@ -95,7 +97,7 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir, scanService })
         };
 
         // 设置缓存策略：有筛选条件时缓存1分钟，否则5分钟
-        const hasFilters = qFilter || typeFilter || dirFilter || tagFilter || hasAuthorParam;
+        const hasFilters = qFilter || typeFilter || dirFilter || tagFilter || hasAuthorParam || unclassifiedFilter;
         const maxAge = hasFilters ? 60 : 300;
         
         const etag = cacheManager.generateETag(responseData);
@@ -246,6 +248,13 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir, scanService })
         if (provided !== token) return sendJson(res, 403, { ok: false, error: "forbidden" });
       }
       const force = (u.searchParams.get("force") || "").toString().trim() === "1";
+      // 阶段4优化：支持拆分参数，向后兼容
+      const forceScan = u.searchParams.has("forceScan") 
+        ? (u.searchParams.get("forceScan") || "").toString().trim() === "1" 
+        : null;
+      const rebuildDerived = u.searchParams.has("rebuildDerived") 
+        ? (u.searchParams.get("rebuildDerived") || "").toString().trim() === "1" 
+        : null;
       const stream = (u.searchParams.get("stream") || "").toString().trim() === "1";
 
       // 如果请求流式进度，使用 SSE
@@ -270,6 +279,8 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir, scanService })
           const r = await scanService.runScan({
             trigger: "manual",
             force,
+            forceScan,
+            rebuildDerived,
             onProgress: (progress) => {
               sendSSE({ type: 'progress', data: progress });
             },
@@ -299,7 +310,7 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir, scanService })
           `[hook] /api/reindex invoked method=${req.method} force=${force ? "1" : "0"} ` +
             `ip=${req.socket?.remoteAddress || "-"} ua=${String(req.headers["user-agent"] || "-")}`
         );
-        const r = await scanService.runScan({ trigger: "manual", force });
+        const r = await scanService.runScan({ trigger: "manual", force, forceScan, rebuildDerived });
         // eslint-disable-next-line no-console
         console.log(
           `[hook] /api/reindex done ok=${Boolean(r && r.ok)} ` +
@@ -372,8 +383,20 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir, scanService })
           const validation = await mediaStore.validateAbsoluteDirs(mediaDirs);
           if (!validation.ok) return sendJson(res, 400, { ok: false, error: validation.error });
 
+          // 1. 更新运行态目录
           mediaStore.setMediaDirs(validation.dirs);
-          if (!process.env.MEDIA_DIR && !process.env.MEDIA_DIRS) await mediaStore.saveConfigToDisk();
+          
+          // 2. 写入 SQL（持久化存储）
+          const currentDirPaths = mediaStore.getMediaDirs().map((d) => d.path);
+          const sqlResult = indexer.setConfiguredMediaDirs(currentDirPaths);
+          if (!sqlResult.ok) {
+            console.warn(`[api/config] Failed to persist mediaDirs to SQL: ${sqlResult.error || 'unknown'}`);
+          }
+          
+          // 3. 同步写入 config.json（在非 env 覆盖模式下，双写保证兼容性）
+          if (!process.env.MEDIA_DIR && !process.env.MEDIA_DIRS) {
+            await mediaStore.saveConfigToDisk();
+          }
 
           // 目录变化后，后台触发一次强制更新（避免下次进入还得等）
           indexer.updateCheck({ force: true }).catch(() => {});
@@ -383,6 +406,7 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir, scanService })
             mediaDirs: mediaStore.getMediaDirs().map((d) => d.path),
             defaultMediaDirs: [mediaStore.defaultMediaDir],
             persisted: !process.env.MEDIA_DIR && !process.env.MEDIA_DIRS,
+            persistedToSql: sqlResult.ok,
           });
         } catch (e) {
           return sendJson(res, 400, { ok: false, error: String(e?.message || e) });

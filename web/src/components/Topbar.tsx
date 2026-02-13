@@ -498,6 +498,22 @@ const Topbar = memo(function Topbar({
                   </button>
                 )}
                 <button
+                  id="openHome"
+                  className="btn ghost"
+                  onClick={() => navigate('/')}
+                  title="返回正常资源页"
+                >
+                  正常资源
+                </button>
+                <button
+                  id="openUnclassified"
+                  className="btn ghost"
+                  onClick={() => navigate('/unclassified')}
+                  title="打开未分类资源页"
+                >
+                  未分类
+                </button>
+                <button
                   id="openSettings"
                   className="btn ghost"
                   onClick={() => navigate('/settings')}

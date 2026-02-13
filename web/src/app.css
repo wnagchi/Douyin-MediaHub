@@ -3112,3 +3112,21 @@ body.immersiveRoute{
 .masonryNoGap .tileWrapper::before{
   display: none;
 }
+
+/* 瀑布流加载态：避免与全局 .grid(12列) 冲突导致骨架变细条 */
+.masonryLoadingGrid{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--masonry-gap-mobile);
+}
+@media (min-width: 768px){
+  .masonryLoadingGrid{
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--masonry-gap-desktop);
+  }
+}
+@media (min-width: 1200px){
+  .masonryLoadingGrid{
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

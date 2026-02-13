@@ -16,7 +16,7 @@ import { useScan } from './hooks/useScan';
 import type { MediaGridItem, MediaGridSection } from './components/MediaGrid';
 import type { TileItem } from './components/MediaTiles';
 
-function App() {
+function App({ unclassifiedOnly = false }: { unclassifiedOnly?: boolean }) {
   // 主状态管理
   const {
     state,
@@ -28,7 +28,7 @@ function App() {
     handleSaveMediaDirs,
     handleLoadMore,
     handleViewModeChange,
-  } = useAppState();
+  } = useAppState({ unclassified: unclassifiedOnly ? '1' : '0' });
 
   // 移动端布局检测
   const { isMobile, mobileDockHidden } = useMobileLayout();
@@ -90,7 +90,7 @@ function App() {
     notifyScanLocked,
   });
 
-  // 计算派生数据
+  // 计算派生数据（当前路由已由后端筛选：主页=正常内容，未分类页=未分类内容）
   const visibleCount = state.viewMode === 'publisher' ? 0 : Math.min(state.renderLimit, state.groups.length);
   const visibleItems: MediaGridItem[] =
     state.viewMode === 'publisher'
@@ -113,6 +113,7 @@ function App() {
     }
     return list;
   })();
+
 
   // 处理视图模式切换（需要扫描锁定检查和关闭模态框）
   const handleViewModeChangeWithLock = (mode: 'masonry' | 'album' | 'publisher') => {
@@ -205,7 +206,7 @@ function App() {
                         const totalGroups = state.pagination.total || state.groups.length;
                         const loadedItems = state.groups.reduce((acc, g) => acc + (g.items?.length || 0), 0);
                         const totalItems = state.pagination.totalItems || loadedItems;
-                        return `groups: ${displayed}/${totalGroups}  |  items: ${Math.min(
+                        return `${unclassifiedOnly ? 'scope: 未分类' : 'scope: 正常资源'}  |  groups: ${displayed}/${totalGroups}  |  items: ${Math.min(
                           loadedItems,
                           totalItems
                         )}/${totalItems}  |  filter: ${state.activeType}  |  tag: ${state.activeTag || '-'}  |  q: ${

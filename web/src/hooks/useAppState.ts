@@ -83,7 +83,7 @@ function getInitialState(): Omit<AppState, 'selectionMode' | 'selectedItems' | '
   };
 }
 
-export function useAppState() {
+export function useAppState(options: { unclassified?: '1' | '0' } = {}) {
   const [state, setState] = useState(getInitialState);
 
   const loadResources = useCallback(
@@ -115,6 +115,7 @@ export function useAppState() {
         params.tag = filters.activeTag.trim();
       }
       if (filters.sortMode) params.sort = filters.sortMode;
+      if (options.unclassified) params.unclassified = options.unclassified;
 
       setState((prev) => ({
         ...prev,
@@ -222,7 +223,17 @@ export function useAppState() {
         }));
       }
     },
-    [state.activeDirId, state.activeTag, state.activeType, state.activeTags, state.tagFilterMode, state.pagination.page, state.q, state.sortMode]
+    [
+      options.unclassified,
+      state.activeDirId,
+      state.activeTag,
+      state.activeType,
+      state.activeTags,
+      state.tagFilterMode,
+      state.pagination.page,
+      state.q,
+      state.sortMode,
+    ]
   );
 
   const loadAuthorsMeta = useCallback(async () => {

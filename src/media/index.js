@@ -249,6 +249,7 @@ module.exports = {
   parseMediaFilename,
   scanMedia,
   inspectMp4,
+  extToKind,
 };
 
 

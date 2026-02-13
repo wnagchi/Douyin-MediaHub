@@ -199,7 +199,7 @@ export default function MediaTiles({
     const heights = expanded ? [220, 260, 300] : [180, 220, 260];
     return (
       <div>
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 masonry-gap">
+        <div className="masonryLoadingGrid">
           {Array.from({ length: skeletonCount }).map((_, i) => (
             <div
               key={`sk-${i}`}

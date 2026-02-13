@@ -110,9 +110,28 @@ async function main({ rootDir = __dirname ? path.resolve(__dirname, "..") : proc
   const indexer = createIndexer({ rootDir: root, mediaStore });
   const scanService = createScanService({ rootDir: root, indexer });
 
-  await mediaStore.loadConfigFromDiskOrEnv();
-  if (!mediaStore.getMediaDirs().length) {
-    mediaStore.setMediaDirs(mediaStore.getDefaultDirs().map((d) => d.path));
+  // 优先从 SQL 读取 mediaDirs（持久化配置），若无则从 config.json/env 加载并迁移一次
+  const sqlMediaDirs = indexer.getConfiguredMediaDirs();
+  if (sqlMediaDirs && sqlMediaDirs.length > 0) {
+    // SQL 中有配置，直接使用
+    mediaStore.setMediaDirs(sqlMediaDirs);
+    console.log(`[config] Loaded ${sqlMediaDirs.length} media dir(s) from SQL`);
+  } else {
+    // SQL 中无配置，走传统加载路径
+    await mediaStore.loadConfigFromDiskOrEnv();
+    if (!mediaStore.getMediaDirs().length) {
+      mediaStore.setMediaDirs(mediaStore.getDefaultDirs().map((d) => d.path));
+    }
+    // 首次迁移：将当前配置写入 SQL
+    const currentDirs = mediaStore.getMediaDirs().map((d) => d.path);
+    if (currentDirs.length > 0) {
+      const result = indexer.setConfiguredMediaDirs(currentDirs);
+      if (result.ok) {
+        console.log(`[config] Migrated ${currentDirs.length} media dir(s) to SQL (first-time)`);
+      } else {
+        console.warn(`[config] Failed to migrate mediaDirs to SQL: ${result.error || 'unknown'}`);
+      }
+    }
   }
 
   if (process.argv.includes("--scan")) {

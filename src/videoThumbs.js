@@ -179,17 +179,33 @@ async function ensureVideoThumb({ rootDir, absVideoPath, dirId, filename }) {
 
 // Simple promise pool for concurrency control
 class PromisePool {
-  constructor(concurrency) {
+  constructor(concurrency, maxQueueSize = Infinity) {
     this.concurrency = concurrency;
+    this.maxQueueSize = maxQueueSize;
     this.running = 0;
     this.queue = [];
+    this.droppedCount = 0;
   }
 
   async add(fn) {
+    // 阶段3优化：队列背压，超限时拒绝任务
+    if (this.queue.length >= this.maxQueueSize) {
+      this.droppedCount++;
+      return { ok: false, error: 'queue full', dropped: true };
+    }
+
     return new Promise((resolve, reject) => {
       this.queue.push({ fn, resolve, reject });
       this.process();
     });
+  }
+
+  getQueueLength() {
+    return this.queue.length;
+  }
+
+  getDroppedCount() {
+    return this.droppedCount;
   }
 
   async process() {
@@ -212,7 +228,11 @@ class PromisePool {
 
 function createVideoThumbGenerator({ rootDir }) {
   const config = getVideoThumbConfig();
-  const pool = new PromisePool(config.concurrency);
+  const enableBackpressure = String(process.env.INDEX_OPT_PHASE3 || "1").trim() === "1";
+  const maxQueue = enableBackpressure
+    ? (Number.parseInt(process.env.VTHUMB_MAX_QUEUE || "3000", 10) || 3000)
+    : Infinity;
+  const pool = new PromisePool(config.concurrency, maxQueue);
 
   return {
     async generateThumb({ absVideoPath, dirId, filename }) {
@@ -228,6 +248,12 @@ function createVideoThumbGenerator({ rootDir }) {
         width: config.width,
         format: config.format,
       });
+    },
+    getQueueStats() {
+      return {
+        queueLength: pool.getQueueLength(),
+        droppedCount: pool.getDroppedCount(),
+      };
     },
   };
 }

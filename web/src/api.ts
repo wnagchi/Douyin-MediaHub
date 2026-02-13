@@ -36,6 +36,7 @@ export interface MediaGroup {
   groupType?: string;
   types?: string[];
   tags?: string[];
+  isUnclassified?: boolean;
   items: MediaItem[];
   [key: string]: any;
 }
@@ -68,6 +69,7 @@ export interface ConfigResponse {
   defaultMediaDirs?: string[];
   fromEnv?: boolean;
   persisted?: boolean;
+  persistedToSql?: boolean;
   __cache?: CacheMeta;
 }
 
@@ -110,6 +112,8 @@ export interface FetchResourcesParams {
   type?: string;
   dirId?: string;
   tag?: string;
+  // 1: 仅未分类；0: 排除未分类；缺省：全部
+  unclassified?: '1' | '0';
   // 当需要过滤“未知发布者”时 author 可能是空字符串，因此不能用 truthy 判断
   author?: string;
   sort?: 'publish' | 'ingest';
@@ -129,6 +133,7 @@ export async function fetchResources(
   if (params.type) query.set('type', params.type);
   if (params.dirId) query.set('dirId', params.dirId);
   if (params.tag) query.set('tag', params.tag);
+  if (params.unclassified) query.set('unclassified', params.unclassified);
   if (params.author !== undefined) query.set('author', String(params.author ?? ''));
   if (params.sort) query.set('sort', params.sort);
   const qs = query.toString();
