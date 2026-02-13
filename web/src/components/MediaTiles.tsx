@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Masonry } from 'antd';
+import { useNavigate } from 'react-router-dom';
 import type { MediaGroup, MediaItem } from '../api';
 import { escHtml } from '../utils';
 import BaseImage from './BaseImage';
@@ -38,6 +39,7 @@ export default function MediaTiles({
   selectionMode = false,
   selectedItems = new Set(),
 }: MediaTilesProps) {
+  const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number>(() => {
@@ -259,6 +261,15 @@ export default function MediaTiles({
             aria-label="切换无边距模式"
           >
             无边距
+          </button>
+          <button
+            type="button"
+            className="mobileColumnsToggle"
+            onClick={() => navigate('/settings')}
+            title="打开设置"
+            aria-label="打开设置"
+          >
+            设置
           </button>
         </div>
       )}

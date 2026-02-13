@@ -285,7 +285,12 @@ body.immersiveRoute{
   align-items:center;
   gap:12px;
   margin-bottom:0;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.brandSearch{
+  flex: 1 1 420px;
+  min-width: 0;
 }
 .logo{
   width:40px;height:40px;
@@ -316,7 +321,7 @@ body.immersiveRoute{
 }
 .primarySearch{
   flex: 1 1 420px;
-  min-width: min(520px, 100%);
+  min-width: 0;
 }
 .primaryActions{
   display:flex;
@@ -440,7 +445,7 @@ body.immersiveRoute{
   border-radius: 999px;
   background: rgba(255,255,255,.04);
   border: 1px solid rgba(255,255,255,.10);
-  min-width: min(520px, 100%);
+  min-width: 0;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.02);
   transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
 }
@@ -450,7 +455,7 @@ body.immersiveRoute{
   background: rgba(255,255,255,.06);
 }
 .search.compactSearch{
-  min-width: 100%;
+  min-width: 0;
   padding: 8px 10px;
   border-radius: 14px;
 }
@@ -947,6 +952,13 @@ body.immersiveRoute{
   .topbarMain{
     flex-wrap: wrap;
   }
+  .brand{
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+  .brandSearch{
+    flex: 1 1 auto;
+  }
   .topbarMainControls{
     width: 100%;
   }
@@ -955,7 +967,7 @@ body.immersiveRoute{
     align-items: stretch;
   }
   .primarySearch{
-    min-width: 100%;
+    min-width: 0;
     flex: 0 0 auto;
   }
   .primaryActions{
@@ -1710,7 +1722,7 @@ body.immersiveRoute{
 
 @media (max-width: 960px){
   .grid > .card{ grid-column: span 12; }
-  .search{ min-width: 100%; }
+  .search{ min-width: 0; }
   .thumb{ grid-column: span 3; }
 }
 

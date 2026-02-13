@@ -174,22 +174,30 @@ const Topbar = memo(function Topbar({
     <header ref={headerRef as any} className={`topbar ${collapsed ? 'collapsed' : ''}`}>
       <div className="topbarMain">
         <div className="brand">
-          <div className="logo" aria-hidden="true">
-            M
+          <div className="search primarySearch brandSearch" style={{ position: 'relative' }}>
+            <input
+              id="q"
+              type="search"
+              placeholder={viewMode === 'publisher' ? '搜索作者（仅匹配作者名）…' : '搜索：作者 / 主题 / 关键词…'}
+              autoComplete="off"
+              value={qValue}
+              onChange={(e) => setQValue(e.target.value)}
+            />
+            <button id="submitQ" className="btn compact" title="搜索" onClick={submitSearch}>
+              搜索
+            </button>
+            <button
+              id="clearQ"
+              className="iconBtn"
+              title="清空"
+              onClick={() => {
+                setQValue('');
+                onQChange('');
+              }}
+            >
+              ×
+            </button>
           </div>
-          <div className="brandText">
-            <div className="title">灵感收藏</div>
-            <div className="subtitle">收藏你喜欢的内容，随时回看与整理</div>
-          </div>
-          <button
-            id="settingsEntry"
-            className="iconBtn"
-            title="设置"
-            onClick={() => navigate('/settings')}
-            aria-label="打开设置"
-          >
-            ⚙
-          </button>
           <button
             id="refreshPageEntry"
             className="iconBtn"
@@ -211,30 +219,6 @@ const Topbar = memo(function Topbar({
 
         <div className="topbarMainControls">
           <div className="primaryRow">
-            <div className="search primarySearch" style={{ position: 'relative' }}>
-              <input
-                id="q"
-                type="search"
-                placeholder={viewMode === 'publisher' ? '搜索作者（仅匹配作者名）…' : '搜索：作者 / 主题 / 关键词…'}
-                autoComplete="off"
-                value={qValue}
-                onChange={(e) => setQValue(e.target.value)}
-              />
-              <button id="submitQ" className="btn compact" title="搜索" onClick={submitSearch}>
-                搜索
-              </button>
-              <button
-                id="clearQ"
-                className="iconBtn"
-                title="清空"
-                onClick={() => {
-                  setQValue('');
-                  onQChange('');
-                }}
-              >
-                ×
-              </button>
-            </div>
             <div className="primaryActions">
               <button
                 id="toggleFilterPanel"
