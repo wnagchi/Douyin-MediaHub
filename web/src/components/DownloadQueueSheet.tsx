@@ -1,5 +1,12 @@
 import { useMemo } from 'react';
-import { useDownload } from '../download/DownloadContext';
+import {
+  selectDownloadCancelQueue,
+  selectDownloadCloseQueue,
+  selectDownloadQueueOpen,
+  selectDownloadTask,
+  selectDownloadTriggerQueueItem,
+  useDownloadStore,
+} from '../store';
 
 function rowStatusText(status: string) {
   if (status === 'queued') return '待下载';
@@ -11,7 +18,11 @@ function rowStatusText(status: string) {
 }
 
 export default function DownloadQueueSheet() {
-  const { task, queueOpen, closeQueue, triggerQueueItem, cancelQueue } = useDownload();
+  const task = useDownloadStore(selectDownloadTask);
+  const queueOpen = useDownloadStore(selectDownloadQueueOpen);
+  const closeQueue = useDownloadStore(selectDownloadCloseQueue);
+  const triggerQueueItem = useDownloadStore(selectDownloadTriggerQueueItem);
+  const cancelQueue = useDownloadStore(selectDownloadCancelQueue);
   const queueInfo = useMemo(() => {
     if (!task || task.mode !== 'batch-mobile') return null;
     const pending = task.items.filter((item) => item.status === 'queued' || item.status === 'triggering').length;

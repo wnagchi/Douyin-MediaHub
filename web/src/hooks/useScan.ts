@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import { message } from 'antd';
-import { reindexWithProgress, type ScanProgress } from '../api';
+import { reindexWithProgress } from '../api';
+import { useScanStore } from '../store';
 
 interface UseScanOptions {
   viewMode: 'masonry' | 'album' | 'publisher';
@@ -15,9 +16,12 @@ export function useScan({
   onLoadAuthorsMeta,
   onLoadResources,
 }: UseScanOptions) {
-  const [fullScanLoading, setFullScanLoading] = useState(false);
-  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
-  const [scanSheetOpen, setScanSheetOpen] = useState(false);
+  const fullScanLoading = useScanStore((state) => state.fullScanLoading);
+  const scanProgress = useScanStore((state) => state.scanProgress);
+  const scanSheetOpen = useScanStore((state) => state.scanSheetOpen);
+  const setFullScanLoading = useScanStore((state) => state.setFullScanLoading);
+  const setScanProgress = useScanStore((state) => state.setScanProgress);
+  const setScanSheetOpen = useScanStore((state) => state.setScanSheetOpen);
 
   const notifyScanLocked = useCallback(
     (msg: string) => {
@@ -29,7 +33,7 @@ export function useScan({
   );
 
   const handleFullScan = useCallback(async () => {
-    if (fullScanLoading) return { ok: false, running: true };
+    if (useScanStore.getState().fullScanLoading) return { ok: false, running: true };
     setFullScanLoading(true);
     setScanProgress(null);
     try {
@@ -52,7 +56,7 @@ export function useScan({
       setFullScanLoading(false);
       setScanProgress(null);
     }
-  }, [fullScanLoading, viewMode, onReloadTags, onLoadAuthorsMeta, onLoadResources]);
+  }, [viewMode, onReloadTags, onLoadAuthorsMeta, onLoadResources, setFullScanLoading, setScanProgress]);
 
   const handleScanClick = useCallback(() => {
     if (notifyScanLocked('扫描进行中，暂不可重复发起')) return;

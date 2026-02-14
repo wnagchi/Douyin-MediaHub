@@ -1,5 +1,13 @@
 import { useMemo } from 'react';
-import { useDownload } from '../download/DownloadContext';
+import {
+  selectDownloadDismissTask,
+  selectDownloadOpenQueue,
+  selectDownloadQueueOpen,
+  selectDownloadStatusExpanded,
+  selectDownloadTask,
+  selectDownloadToggleStatusExpanded,
+  useDownloadStore,
+} from '../store';
 
 function statusLabel(status: string) {
   if (status === 'preparing') return '准备中';
@@ -12,7 +20,12 @@ function statusLabel(status: string) {
 }
 
 export default function DownloadStatusBar() {
-  const { task, queueOpen, statusExpanded, openQueue, toggleStatusExpanded, dismissTask } = useDownload();
+  const task = useDownloadStore(selectDownloadTask);
+  const queueOpen = useDownloadStore(selectDownloadQueueOpen);
+  const statusExpanded = useDownloadStore(selectDownloadStatusExpanded);
+  const openQueue = useDownloadStore(selectDownloadOpenQueue);
+  const toggleStatusExpanded = useDownloadStore(selectDownloadToggleStatusExpanded);
+  const dismissTask = useDownloadStore(selectDownloadDismissTask);
   const summary = useMemo(() => {
     if (!task) return null;
     const pending = task.items.filter((item) => item.status === 'queued' || item.status === 'triggering').length;

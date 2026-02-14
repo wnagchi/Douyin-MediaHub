@@ -25,7 +25,8 @@
     "react-router-dom": "^6.30.2",
     "sharp": "^0.33.0",
     "swiper": "^11.1.5",
-    "video-react": "^0.16.0"
+    "video-react": "^0.16.0",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",

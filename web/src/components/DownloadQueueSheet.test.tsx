@@ -1,77 +1,122 @@
 import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
-import { useDownload } from '../download/DownloadContext';
 import DownloadQueueSheet from './DownloadQueueSheet';
+import type { DownloadTask } from '../download/types';
+import { resetDownloadStoreState, useDownloadStore } from '../store';
 
-vi.mock('../download/DownloadContext', () => ({
-  useDownload: vi.fn(),
+vi.mock('../download/manager', () => ({
+  buildDownloadUrlFromMedia: vi.fn(),
+  downloadSingle: vi.fn(),
+  prepareBatch: vi.fn(),
+  startDesktopBatchZip: vi.fn(),
 }));
 
-type MutableState = {
-  task: any;
-  queueOpen: boolean;
-  statusExpanded: boolean;
+vi.mock('../download/platform', () => ({
+  getPlatformInfo: vi.fn(() => ({ ios: true, standalonePwa: true, mobile: true })),
+}));
+
+vi.mock('antd', () => ({
+  message: {
+    loading: vi.fn(),
+    destroy: vi.fn(),
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn(),
+  },
+}));
+
+type StoreActionSpies = {
   triggerQueueItem: ReturnType<typeof vi.fn>;
   cancelQueue: ReturnType<typeof vi.fn>;
   closeQueue: ReturnType<typeof vi.fn>;
 };
 
-const mockedUseDownload = vi.mocked(useDownload);
-
-function createState(): MutableState {
-  const state: MutableState = {
-    queueOpen: true,
-    statusExpanded: true,
-    task: {
-      id: 'task-1',
-      name: '批量下载（2项）',
-      mode: 'batch-mobile',
-      status: 'queued',
-      total: 2,
-      triggered: 0,
-      failed: 0,
-      createdAt: Date.now(),
-      items: [
-        {
-          id: 'd1|a.mp4',
-          dirId: 'd1',
-          filename: 'a.mp4',
-          mediaUrl: '/media/d1/a.mp4',
-          downloadUrl: '/media/d1/a.mp4?download=1',
-          contentType: 'video/mp4',
-          size: 10,
-          status: 'queued',
-        },
-        {
-          id: 'd1|b.mp4',
-          dirId: 'd1',
-          filename: 'b.mp4',
-          mediaUrl: '/media/d1/b.mp4',
-          downloadUrl: '/media/d1/b.mp4?download=1',
-          contentType: 'video/mp4',
-          size: 20,
-          status: 'queued',
-        },
-      ],
-    },
-    triggerQueueItem: vi.fn(async (itemId: string) => {
-      const target = state.task.items.find((it: any) => it.id === itemId);
-      if (!target) return;
-      target.status = 'triggered';
-      state.task.triggered += 1;
-    }),
-    cancelQueue: vi.fn(() => {
-      state.task.items.forEach((it: any) => {
-        if (it.status === 'queued') it.status = 'cancelled';
-      });
-      state.task.status = 'cancelled';
-    }),
-    closeQueue: vi.fn(() => {
-      state.queueOpen = false;
-    }),
+function createTask(): DownloadTask {
+  return {
+    id: 'task-1',
+    name: '批量下载（2项）',
+    mode: 'batch-mobile',
+    status: 'queued',
+    total: 2,
+    triggered: 0,
+    failed: 0,
+    createdAt: Date.now(),
+    items: [
+      {
+        id: 'd1|a.mp4',
+        dirId: 'd1',
+        filename: 'a.mp4',
+        mediaUrl: '/media/d1/a.mp4',
+        downloadUrl: '/media/d1/a.mp4?download=1',
+        contentType: 'video/mp4',
+        size: 10,
+        status: 'queued',
+      },
+      {
+        id: 'd1|b.mp4',
+        dirId: 'd1',
+        filename: 'b.mp4',
+        mediaUrl: '/media/d1/b.mp4',
+        downloadUrl: '/media/d1/b.mp4?download=1',
+        contentType: 'video/mp4',
+        size: 20,
+        status: 'queued',
+      },
+    ],
   };
-  return state;
+}
+
+function seedStore(): StoreActionSpies {
+  const triggerQueueItem = vi.fn(async (itemId: string) => {
+    useDownloadStore.setState((state) => {
+      if (!state.task || state.task.mode !== 'batch-mobile') return state;
+      const items = state.task.items.map((item) =>
+        item.id === itemId ? { ...item, status: 'triggered' as const } : item
+      );
+      return {
+        task: {
+          ...state.task,
+          items,
+          triggered: items.filter((item) => item.status === 'triggered').length,
+        },
+      };
+    });
+  });
+
+  const cancelQueue = vi.fn(() => {
+    useDownloadStore.setState((state) => {
+      if (!state.task || state.task.mode !== 'batch-mobile') return state;
+      return {
+        task: {
+          ...state.task,
+          status: 'cancelled',
+          items: state.task.items.map((item) =>
+            item.status === 'queued' ? { ...item, status: 'cancelled' as const } : item
+          ),
+        },
+      };
+    });
+  });
+
+  const closeQueue = vi.fn(() => {
+    useDownloadStore.setState({ queueOpen: false });
+  });
+
+  useDownloadStore.setState({
+    task: createTask(),
+    queueOpen: true,
+    triggerQueueItem,
+    cancelQueue,
+    closeQueue,
+  });
+
+  return {
+    triggerQueueItem,
+    cancelQueue,
+    closeQueue,
+  };
 }
 
 let container: HTMLDivElement | null = null;
@@ -93,12 +138,12 @@ async function rerenderSheet() {
 }
 
 describe('DownloadQueueSheet', () => {
-  let state: MutableState;
+  let actions: StoreActionSpies;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    state = createState();
-    mockedUseDownload.mockImplementation(() => state as any);
+    resetDownloadStoreState();
+    actions = seedStore();
   });
 
   afterEach(async () => {
@@ -107,6 +152,7 @@ describe('DownloadQueueSheet', () => {
         root?.unmount();
       });
     }
+    resetDownloadStoreState();
     if (container?.isConnected) container.remove();
     container = null;
     root = null;
@@ -124,7 +170,7 @@ describe('DownloadQueueSheet', () => {
     });
     await rerenderSheet();
 
-    expect(state.triggerQueueItem).toHaveBeenCalledTimes(1);
+    expect(actions.triggerQueueItem).toHaveBeenCalledTimes(1);
     expect(container?.textContent).toContain('已触发 1/2');
   });
 
@@ -140,12 +186,12 @@ describe('DownloadQueueSheet', () => {
     });
     await rerenderSheet();
 
-    expect(state.cancelQueue).toHaveBeenCalledTimes(1);
+    expect(actions.cancelQueue).toHaveBeenCalledTimes(1);
     expect(container?.textContent).toContain('已取消');
   });
 
   it('renders nothing when queue is closed', async () => {
-    state.queueOpen = false;
+    useDownloadStore.setState({ queueOpen: false });
     await renderSheet();
     expect(container?.querySelector('.downloadQueueSheet')).toBeNull();
   });

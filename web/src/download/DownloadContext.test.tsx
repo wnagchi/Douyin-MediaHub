@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { message } from 'antd';
 import { DownloadProvider, useDownload } from './DownloadContext';
+import { resetDownloadStoreState } from '../store';
 
 const prepareBatchMock = vi.fn();
 const downloadSingleMock = vi.fn();
@@ -75,6 +76,7 @@ async function renderHarness(count: number) {
 describe('DownloadContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetDownloadStoreState();
     downloadSingleMock.mockResolvedValue(undefined);
     prepareBatchMock.mockResolvedValue({
       ok: true,
@@ -108,6 +110,7 @@ describe('DownloadContext', () => {
         root?.unmount();
       });
     }
+    resetDownloadStoreState();
     if (container?.isConnected) container.remove();
     container = null;
     root = null;

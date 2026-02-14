@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { deleteMediaItems } from '../api';
 import type { MediaGroup } from '../api';
-import { useDownload } from '../download/DownloadContext';
+import { selectDownloadStartBatchDownload, useDownloadStore } from '../store';
 
 interface UseSelectionOptions {
   groups: MediaGroup[];
@@ -11,7 +11,7 @@ interface UseSelectionOptions {
 export function useSelection({ groups, onRefresh }: UseSelectionOptions) {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
-  const { startBatchDownload } = useDownload();
+  const startBatchDownload = useDownloadStore(selectDownloadStartBatchDownload);
 
   const toggleSelectionMode = useCallback(() => {
     setSelectionMode((prev) => !prev);
