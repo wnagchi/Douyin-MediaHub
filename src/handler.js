@@ -4,7 +4,7 @@ const { URL } = require("url");
 const archiver = require("archiver");
 
 const { send, sendJson } = require("./http/respond");
-const { safeJoin, serveStaticFile } = require("./http/static");
+const { safeJoin, serveStaticFile, contentTypeForFile } = require("./http/static");
 const { cacheManager } = require("./http/cache");
 const { inspectMp4 } = require("./media");
 const { dirExists } = require("./utils/fs");
@@ -536,6 +536,66 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir, scanService })
       }
     }
 
+    if (req.method === "POST" && pathname === "/api/download/prepare") {
+      try {
+        const body = await readJsonBody(req, { limitBytes: 2 * 1024 * 1024 });
+        const items = Array.isArray(body?.items) ? body.items : [];
+        if (!items.length) return sendJson(res, 400, { ok: false, error: "items 不能为空" });
+        if (items.length > 2000) return sendJson(res, 400, { ok: false, error: "items 过多" });
+
+        const dirs = mediaStore.getMediaDirs();
+        const validItems = [];
+        const invalid = [];
+
+        for (const it of items) {
+          const dirId = (it?.dirId || "").toString().trim();
+          const filename = (it?.filename || "").toString();
+          if (!dirId || !filename) {
+            invalid.push({ dirId, filename, error: "missing dirId/filename" });
+            continue;
+          }
+          const dir = dirs.find((d) => d.id === dirId);
+          if (!dir) {
+            invalid.push({ dirId, filename, error: "dir not found" });
+            continue;
+          }
+          const filePath = safeJoin(dir.path, filename);
+          if (!filePath) {
+            invalid.push({ dirId, filename, error: "bad path" });
+            continue;
+          }
+
+          let stat;
+          try {
+            stat = await fsp.stat(filePath);
+            if (!stat.isFile()) {
+              invalid.push({ dirId, filename, error: "not a file" });
+              continue;
+            }
+          } catch {
+            invalid.push({ dirId, filename, error: "not found" });
+            continue;
+          }
+
+          const mediaUrl = `/media/${encodeURIComponent(dirId)}/${encodeURIComponent(filename)}`;
+          const downloadUrl = `${mediaUrl}?download=1`;
+          validItems.push({
+            id: `${dirId}|${filename}`,
+            dirId,
+            filename,
+            mediaUrl,
+            downloadUrl,
+            contentType: contentTypeForFile(filePath),
+            size: stat.size,
+          });
+        }
+
+        return sendJson(res, 200, { ok: true, items: validItems, invalid });
+      } catch (e) {
+        return sendJson(res, 400, { ok: false, error: String(e?.message || e), items: [], invalid: [] });
+      }
+    }
+
     if (req.method === "POST" && pathname === "/api/delete") {
       try {
         const j = await readJsonBody(req, { limitBytes: 1024 * 1024 });
@@ -816,7 +876,11 @@ function createHandler({ publicDir, mediaStore, indexer, rootDir, scanService })
       if (!dir) return send(res, 404, "Dir not found");
       const filePath = safeJoin(dir.path, fileRel);
       if (!filePath) return send(res, 400, "Bad path");
-      const ok = await serveStaticFile(req, res, filePath);
+      const forceDownload = (u.searchParams.get("download") || "").toString().trim() === "1";
+      const ok = await serveStaticFile(req, res, filePath, {
+        forceDownload,
+        downloadName: path.basename(fileRel),
+      });
       return ok ? undefined : send(res, 404, "Not found");
     }
 

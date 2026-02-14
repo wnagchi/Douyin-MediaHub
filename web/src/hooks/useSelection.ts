@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { deleteMediaItems } from '../api';
 import type { MediaGroup } from '../api';
+import { useDownload } from '../download/DownloadContext';
 
 interface UseSelectionOptions {
   groups: MediaGroup[];
@@ -10,6 +11,7 @@ interface UseSelectionOptions {
 export function useSelection({ groups, onRefresh }: UseSelectionOptions) {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const { startBatchDownload } = useDownload();
 
   const toggleSelectionMode = useCallback(() => {
     setSelectionMode((prev) => !prev);
@@ -80,39 +82,8 @@ export function useSelection({ groups, onRefresh }: UseSelectionOptions) {
       return { dirId, filename };
     });
 
-    try {
-      const r = await fetch('/api/download', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
-      });
-
-      if (!r.ok) {
-        let errorMsg = `下载失败（${r.status}）`;
-        try {
-          const j = await r.json();
-          if (j?.error) errorMsg = j.error;
-        } catch {}
-        throw new Error(errorMsg);
-      }
-
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      const disposition = r.headers.get('Content-Disposition') || r.headers.get('content-disposition') || '';
-      const match = /filename="([^"]+)"/.exec(disposition);
-      const filename = match?.[1] || `media-${Date.now()}.zip`;
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (error) {
-      alert(`下载失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-  }, [selectedItems]);
+    await startBatchDownload(items);
+  }, [selectedItems, startBatchDownload]);
 
   return {
     selectionMode,

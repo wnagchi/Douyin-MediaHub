@@ -7,6 +7,7 @@ import BaseVideo from './BaseVideo';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Virtual, Keyboard, Mousewheel } from 'swiper/modules';
 import type { Swiper as SwiperType } from 'swiper';
+import { useDownload } from '../download/DownloadContext';
 import 'swiper/css';
 import 'swiper/css/virtual';
 
@@ -107,6 +108,7 @@ export default function PreviewModal({
   flatItems,
   feedOverlay,
 }: PreviewModalProps) {
+  const { downloadMediaItem } = useDownload();
   const [warnVisible, setWarnVisible] = useState(false);
   const [warnExtra, setWarnExtra] = useState('');
   const [showInspectInfo, setShowInspectInfo] = useState(false);
@@ -265,26 +267,22 @@ export default function PreviewModal({
     };
   }, []);
 
-  // 拦截 wheel/touchmove 事件，防止滚动穿透
+  // 拦截 backdrop 上的 wheel/touchmove，防止滚动穿透
+  // 注意：沉浸模式依赖 Swiper 的手势处理，这里不应拦截其触摸链路。
   useEffect(() => {
+    if (feedMode) return;
     const modal = modalRef.current;
     if (!modal) return;
 
+    const shouldBlock = (target: EventTarget | null) =>
+      target instanceof HTMLElement && Boolean(target.closest('.modalBackdrop'));
+
     const handleWheel = (e: WheelEvent) => {
-      // 如果事件发生在可交互容器内，允许其处理
-      const target = e.target as HTMLElement;
-      const allow = target.closest('.itemSwiper');
-      if (!allow) {
-        e.preventDefault();
-      }
+      if (shouldBlock(e.target)) e.preventDefault();
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      const target = e.target as HTMLElement;
-      const allow = target.closest('.itemSwiper');
-      if (!allow) {
-        e.preventDefault();
-      }
+      if (shouldBlock(e.target)) e.preventDefault();
     };
 
     // 使用 passive: false 以便可以 preventDefault
@@ -295,7 +293,7 @@ export default function PreviewModal({
       modal.removeEventListener('wheel', handleWheel);
       modal.removeEventListener('touchmove', handleTouchMove);
     };
-  }, []);
+  }, [feedMode]);
 
   // 视频播放逻辑：仅在激活且是视频时处理
   useEffect(() => {
@@ -1339,9 +1337,20 @@ export default function PreviewModal({
                 >
                   删除合集
                 </button>
-                <a id="download" className="btn compact ghost" href={item.url} download={item.filename}>
+                <button
+                  id="download"
+                  type="button"
+                  className="btn compact ghost"
+                  onClick={() => {
+                    void downloadMediaItem({
+                      dirId: item.dirId,
+                      filename: item.filename,
+                      mediaUrl: item.url,
+                    });
+                  }}
+                >
                   下载
-                </a>
+                </button>
               </div>
             </div>
           </div>

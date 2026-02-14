@@ -2530,6 +2530,7 @@ body.immersiveRoute{
   align-items: center;
   gap: 12px;
   pointer-events: none;
+  z-index: 2;
 }
 .feedOverlayActions{
   display: flex;
@@ -2552,6 +2553,8 @@ body.immersiveRoute{
   transition: all 0.2s ease;
   padding: 0;
   box-shadow: 0 10px 26px rgba(0,0,0,.35);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .feedActionBtn:hover{
   background: rgba(0,0,0,.78);
@@ -2570,6 +2573,7 @@ body.immersiveRoute{
   background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.60) 50%, rgba(0,0,0,.88) 100%);
   color: rgba(255,255,255,.92);
   pointer-events: auto;
+  z-index: 1;
 }
 .feedInfo{
   max-width: min(680px, 86vw);
@@ -3140,5 +3144,223 @@ body.immersiveRoute{
 @media (min-width: 1200px){
   .masonryLoadingGrid{
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Download status + queue */
+.downloadStatusBar{
+  position: fixed;
+  top: calc(var(--topbar-h, 0px) + 8px);
+  left: 12px;
+  right: 12px;
+  margin: 0 auto;
+  max-width: 560px;
+  z-index: 140;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 14px;
+  background: rgba(10, 16, 28, .88);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 12px 28px rgba(0,0,0,.38);
+  padding: 10px 12px;
+  color: rgba(255,255,255,.94);
+}
+.downloadStatusBarTop{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.downloadStatusBarTitle{
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.downloadStatusBarState{
+  font-size: 11px;
+  font-family: var(--mono);
+  border-radius: 999px;
+  padding: 2px 8px;
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.08);
+}
+.downloadStatusBarState.preparing,
+.downloadStatusBarState.triggering{
+  border-color: rgba(39,211,255,.45);
+  color: rgba(39,211,255,.96);
+}
+.downloadStatusBarState.triggered{
+  border-color: rgba(57,212,130,.45);
+  color: rgba(107,244,165,.96);
+}
+.downloadStatusBarState.failed{
+  border-color: rgba(255,92,125,.45);
+  color: rgba(255,132,160,.96);
+}
+.downloadStatusBarState.cancelled{
+  border-color: rgba(156,163,175,.45);
+  color: rgba(194,201,214,.92);
+}
+.downloadStatusBarMeta{
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: rgba(255,255,255,.78);
+  font-family: var(--mono);
+  flex-wrap: wrap;
+}
+.downloadStatusBarActions{
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.downloadStatusBarBtn{
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.08);
+  color: rgba(255,255,255,.92);
+  border-radius: 10px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.downloadStatusBarBtn.danger{
+  border-color: rgba(255,92,125,.36);
+}
+.downloadQueueSheetOverlay{
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  background: rgba(0,0,0,.58);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 14px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+}
+.downloadQueueSheet{
+  width: 100%;
+  max-width: 620px;
+  max-height: min(72vh, 760px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg1);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 16px;
+  box-shadow: 0 -12px 30px rgba(0,0,0,.48);
+  overflow: hidden;
+}
+.downloadQueueSheetHeader{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+}
+.downloadQueueSheetTitle{
+  font-size: 16px;
+  font-weight: 700;
+}
+.downloadQueueSheetMeta{
+  margin-top: 2px;
+  font-size: 12px;
+  color: rgba(255,255,255,.72);
+  font-family: var(--mono);
+}
+.downloadQueueSheetIconBtn{
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 10px;
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.9);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.downloadQueueSheetBody{
+  padding: 10px 12px;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+}
+.downloadQueueRow{
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 12px;
+  background: rgba(255,255,255,.04);
+}
+.downloadQueueRowMain{
+  min-width: 0;
+}
+.downloadQueueRowName{
+  font-size: 13px;
+  color: rgba(255,255,255,.92);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.downloadQueueRowStatus{
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(255,255,255,.66);
+}
+.downloadQueueRowError{
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(255,124,150,.9);
+}
+.downloadQueueRowBtn{
+  align-self: center;
+  border: 1px solid rgba(39,211,255,.4);
+  background: rgba(39,211,255,.14);
+  color: rgba(233,251,255,.96);
+  border-radius: 10px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.downloadQueueRowBtn.ghost{
+  border-color: rgba(255,255,255,.16);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.75);
+}
+.downloadQueueRowBtn:disabled{
+  opacity: .55;
+  cursor: default;
+}
+.downloadQueueSheetActions{
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid rgba(255,255,255,.1);
+}
+.downloadQueueSheetBtn{
+  border: 1px solid rgba(255,255,255,.2);
+  background: rgba(255,255,255,.08);
+  color: rgba(255,255,255,.9);
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.downloadQueueSheetBtn.ghost{
+  background: rgba(255,255,255,.05);
+}
+.downloadQueueSheetBtn.danger{
+  border-color: rgba(255,92,125,.36);
+}
+
+@media (max-width: 768px){
+  .downloadStatusBar{
+    top: 8px;
   }
 }

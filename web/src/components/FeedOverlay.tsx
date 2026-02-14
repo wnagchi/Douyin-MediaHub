@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MediaItem, MediaGroup } from '../api';
 import { escHtml } from '../utils';
+import { useDownload } from '../download/DownloadContext';
 
 interface FeedOverlayProps {
   item: MediaItem;
@@ -28,13 +29,15 @@ export default function FeedOverlay({
   showVideoControls = false,
 }: FeedOverlayProps) {
   const navigate = useNavigate();
+  const { downloadMediaItem } = useDownload();
 
   const handleDownload = useCallback(() => {
-    const link = document.createElement('a');
-    link.href = item.url;
-    link.download = item.filename;
-    link.click();
-  }, [item.url, item.filename]);
+    void downloadMediaItem({
+      dirId: item.dirId,
+      filename: item.filename,
+      mediaUrl: item.url,
+    });
+  }, [downloadMediaItem, item.dirId, item.filename, item.url]);
 
   const handleTagClick = useCallback(
     (tag: string) => {

@@ -75,18 +75,46 @@ function getCacheControl(filePath) {
   return "public, max-age=3600";
 }
 
-async function serveStaticFile(req, res, filePath) {
+function encodeRFC5987ValueChars(str) {
+  return encodeURIComponent(str).replace(/[!'()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function toAsciiFilenameFallback(filename) {
+  const cleaned = String(filename || "download")
+    .replace(/[\r\n\\"]/g, "_")
+    .replace(/[^\x20-\x7E]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "download";
+  // 控制长度，避免极端长文件名导致响应头过大
+  return cleaned.length > 180 ? cleaned.slice(0, 180) : cleaned;
+}
+
+function buildContentDisposition(filename) {
+  const base = String(filename || "download");
+  const fallback = toAsciiFilenameFallback(base);
+  const encoded = encodeRFC5987ValueChars(base);
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
+async function serveStaticFile(req, res, filePath, options = {}) {
   try {
     const stat = await fsp.stat(filePath);
     if (!stat.isFile()) return false;
+    const forceDownload = Boolean(options.forceDownload);
+    const downloadName = options.downloadName ? String(options.downloadName) : path.basename(filePath);
 
     // 生成 ETag（基于文件大小和修改时间）
     const etag = `"${stat.size}-${stat.mtimeMs}"`;
     res.setHeader("ETag", etag);
     
-    // 根据文件类型设置缓存策略
-    const cacheControl = getCacheControl(filePath);
-    res.setHeader("Cache-Control", cacheControl);
+    // 下载模式禁用缓存，避免重复下载命中 304
+    if (forceDownload) {
+      res.setHeader("Cache-Control", "no-store");
+    } else {
+      const cacheControl = getCacheControl(filePath);
+      res.setHeader("Cache-Control", cacheControl);
+    }
     
     // 设置 Last-Modified 头
     const lastModified = new Date(stat.mtime).toUTCString();
@@ -95,23 +123,29 @@ async function serveStaticFile(req, res, filePath) {
     const ct = contentTypeForFile(filePath);
     res.setHeader("Content-Type", ct);
     res.setHeader("Accept-Ranges", "bytes");
-
-    // 检查 If-None-Match (ETag 验证)
-    if (req.headers["if-none-match"] === etag) {
-      res.writeHead(304);
-      res.end();
-      return true;
+    if (forceDownload) {
+      res.setHeader("Content-Disposition", buildContentDisposition(downloadName));
     }
-    
-    // 检查 If-Modified-Since (时间验证)
-    const ifModifiedSince = req.headers["if-modified-since"];
-    if (ifModifiedSince) {
-      const reqTime = new Date(ifModifiedSince).getTime();
-      const fileTime = stat.mtimeMs;
-      if (reqTime >= fileTime) {
+
+    // 下载模式跳过 304，确保每次都返回实体内容
+    if (!forceDownload) {
+      // 检查 If-None-Match (ETag 验证)
+      if (req.headers["if-none-match"] === etag) {
         res.writeHead(304);
         res.end();
         return true;
+      }
+
+      // 检查 If-Modified-Since (时间验证)
+      const ifModifiedSince = req.headers["if-modified-since"];
+      if (ifModifiedSince) {
+        const reqTime = new Date(ifModifiedSince).getTime();
+        const fileTime = stat.mtimeMs;
+        if (reqTime >= fileTime) {
+          res.writeHead(304);
+          res.end();
+          return true;
+        }
       }
     }
 

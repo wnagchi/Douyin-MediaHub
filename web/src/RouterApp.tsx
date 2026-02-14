@@ -3,6 +3,9 @@ import { Navigate, useLocation } from 'react-router-dom';
 import App from './App';
 import FeedPage from './pages/FeedPage';
 import SettingsPage from './pages/SettingsPage';
+import { DownloadProvider } from './download/DownloadContext';
+import DownloadStatusBar from './components/DownloadStatusBar';
+import DownloadQueueSheet from './components/DownloadQueueSheet';
 
 const ROUTES = {
   home: '/',
@@ -40,7 +43,7 @@ export default function RouterApp() {
   const isKnown = isHome || isFeed || isSettings || isUnclassified;
 
   return (
-    <>
+    <DownloadProvider>
       <div className={`routeCache ${!isHome ? 'routeHidden' : ''}`} aria-hidden={!isHome}>
         <App />
       </div>
@@ -60,6 +63,8 @@ export default function RouterApp() {
         </div>
       )}
       {!isKnown && <Navigate to="/" replace />}
-    </>
+      <DownloadStatusBar />
+      <DownloadQueueSheet />
+    </DownloadProvider>
   );
 }

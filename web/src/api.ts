@@ -101,6 +101,33 @@ export interface DeleteItemsResponse {
   results?: Array<{ ok: boolean; dirId: string; filename: string; error?: string; deleted?: boolean; skipped?: string }>;
 }
 
+export interface PrepareDownloadRequest {
+  items: DeleteItemsRequestItem[];
+}
+
+export interface PreparedDownloadItem {
+  id: string;
+  dirId: string;
+  filename: string;
+  mediaUrl: string;
+  downloadUrl: string;
+  contentType: string;
+  size: number;
+}
+
+export interface PrepareDownloadInvalidItem {
+  dirId: string;
+  filename: string;
+  error: string;
+}
+
+export interface PrepareDownloadResponse {
+  ok: boolean;
+  error?: string;
+  items: PreparedDownloadItem[];
+  invalid: PrepareDownloadInvalidItem[];
+}
+
 async function asJson<T>(resp: Response): Promise<T> {
   return resp.json();
 }
@@ -296,6 +323,15 @@ export async function deleteMediaItems(items: DeleteItemsRequestItem[]): Promise
     await invalidationService.onMediaDelete();
   }
   return result;
+}
+
+export async function prepareDownloads(items: DeleteItemsRequestItem[]): Promise<PrepareDownloadResponse> {
+  const r = await fetch('/api/download/prepare', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  return asJson<PrepareDownloadResponse>(r);
 }
 
 export interface ReindexResponse {
